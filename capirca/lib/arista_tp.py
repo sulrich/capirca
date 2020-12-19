@@ -315,9 +315,9 @@ class Term(aclgenerator.Term):
             # address
             address = self.term.GetAddressOfVersion("address", term_af)
             if address:
-                config.Append(MATCH_INDENT, "%s {" % family_keywords["addr"])
-                for addr in address:
-                    config.Append(MATCH_INDENT, "%s" % addr)
+                addr_list = ' '.join(str(address))
+                config.Append(MATCH_INDENT, 'source prefix %s' % addr_list)
+                config.Append(MATCH_INDENT, 'destination prefix %s' % addr_list)
 
             elif self.term.address:
                 logging.debug(
