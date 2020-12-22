@@ -429,13 +429,11 @@ class Term(aclgenerator.Term):
             # TODO(sulrich): fix port range generation
             # source port
             if self.term.source_port:
-                print("src port:", self.term.source_port)
                 sport += " source port %s" % self._Group(self.term.source_port)
                 port_str += sport
 
             # destination port
             if self.term.destination_port:
-                print("dst port:", self.term.destination_port)
                 dport += (" destination port %s"
                           % self._Group(self.term.destination_port))
                 port_str += dport
@@ -443,8 +441,8 @@ class Term(aclgenerator.Term):
             if port_str != "":
                 config.Append(MATCH_INDENT, protocol_str + port_str)
 
-            # for next_str in from_str:
-            #     config.Append(MATCH_INDENT, next_str)
+            for next_str in from_str:
+                config.Append(MATCH_INDENT, next_str)
 
             # packet length
             if self.term.packet_length:
@@ -470,7 +468,7 @@ class Term(aclgenerator.Term):
                 )
             if icmp_types != [""]:
                 for t in icmp_types:
-                    icmp_type_str += "%s, " % t
+                    icmp_type_str += "%s," % t
 
                 if icmp_type_str.endswith(","):
                     icmp_type_str = icmp_type_str[:-1]  # chomp the trailing ','
@@ -489,10 +487,8 @@ class Term(aclgenerator.Term):
 
         # ACTION HANDLING
         # if there's no action, then this is an implicit permit
-        print("action", self.term.action)
 
         current_action = self._ACTIONS.get(self.term.action[0])
-        print("cur act:", current_action)
         # non-permit/drop actions should be added here
         has_extra_actions = (
             self.term.logging or
@@ -500,9 +496,9 @@ class Term(aclgenerator.Term):
             self.term.dscp_set
         )
 
-        # if accept and no extra actions don't generate an action statement
-        # if accept and there are extra actions generate an action statement
         # if !accept - generate an action statement
+        # if accept and there are extra actions generate an actions statement
+        # if accept and no extra actions don't generate an actions statement
         if self.term.action != ["accept"]:
             config.Append(MATCH_INDENT, "actions")
             config.Append(ACTION_INDENT, "%s" % current_action)
@@ -545,12 +541,12 @@ class Term(aclgenerator.Term):
 
         return str(config)
 
-    def _Range(range, type="port"):
+    def _Range(self, field_range, field_type="port"):
         """generate a valid range for EOS traffic-policies"""
 
         pass
 
-    def _genPrefixFieldset(dir, name, pfxs, ex_pfxs, af):
+    def _GenPrefixFieldset(self, direction, name, pfxs, ex_pfxs, af):
         field_list = ""
 
         for p in pfxs:
@@ -560,7 +556,8 @@ class Term(aclgenerator.Term):
             field_list += " except %s" % p
 
         fieldset_hdr = (
-            TERM_INDENT + "field-set " + af + " prefix " + dir + "-" + ("%s" % name)
+            TERM_INDENT + "field-set " +
+            af + " prefix " + direction + "-" + ("%s" % name)
         )
         field_set = fieldset_hdr + field_list
 
@@ -570,11 +567,13 @@ class Term(aclgenerator.Term):
     def NextIpCheck(next_ip, term_name):
         if len(next_ip) > 1:
             raise AristaTpNextIpError(
-                "The following term has more " "than one next IP value: %s" % term_name
+                "the following term has more "
+                "than one next IP value: %s" % term_name
             )
         if next_ip[0].num_addresses > 1:
             raise AristaTpNextIpError(
-                "The following term has a subnet " "instead of a host: %s" % term_name
+                "The following term has a subnet "
+                "instead of a host: %s" % term_name
             )
 
     def _MinimizePrefixes(self, include, exclude):
@@ -650,7 +649,7 @@ class Term(aclgenerator.Term):
                 return "%d-%d" % (el[0], el[1])
 
         if len(group) > 1:
-            rval = ' '.join([_FormattedGroup(x) for x in group])
+            rval = " ".join([_FormattedGroup(x, lc) for x in group])
         else:
             rval = _FormattedGroup(group[0])
         return rval
@@ -673,13 +672,11 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
     _SUPPORTED_AF = set(("inet", "inet6"))
     _TERM = Term
 
-    SUFFIX = ".tpl"
+    SUFFIX = ".atp"
 
     def _BuildTokens(self):
         """
-
-        returns:
-            tuple of supported tokens and sub tokens
+        returns: tuple of supported tokens and sub tokens
         """
         supported_tokens, supported_sub_tokens = super(
             AristaTrafficPolicy, self
@@ -778,7 +775,8 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                                 opt.startswith("first-fragment")):
                             logging.warning(
                                 "WARNING: term %s in policy %s uses an "
-                                "unsupported option (%s) and will not be rendered.",
+                                "unsupported option (%s) and will not be "
+                                "rendered.",
                                 term.name,
                                 filter_name,
                                 opt,
@@ -850,9 +848,13 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
                     # generate the unique list of named counters
                     if term.counter:
-                        src_term.counter = "src-%s" % re.sub(r"\.", "-", str(src_term.counter))
+                        src_term.counter = ("src-" +
+                                            re.sub(r"\.", "-",
+                                                   str(src_term.counter)))
                         policy_counters.add(src_term.counter)
-                        dst_term.counter = "dst-%s" % re.sub(r"\.", "-", str(dst_term.counter))
+                        dst_term.counter = ("dst-" +
+                                            re.sub(r"\.", "-",
+                                                   str(dst_term.counter)))
                         policy_counters.add(dst_term.counter)
 
                 else:
@@ -897,4 +899,4 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                 if term_str:
                     config.Append("", term_str, verbatim=True)
 
-        return str(config) + '\n'
+        return str(config) + "\n"
