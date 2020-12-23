@@ -149,12 +149,12 @@ class Term(aclgenerator.Term):
 
     """
 
-    _PLATFORM = "arist_tp"
+    _PLATFORM = "arista_tp"
     _ACTIONS = {
         "accept": "",
         "deny": "drop",
-        "reject": "drop",
-        "reject-with-tcp-rst": "drop",
+        "reject": "drop",               # unsupported action, convert to drop
+        "reject-with-tcp-rst": "drop",  # ibid
         "next": "continue",
     }
 
@@ -215,7 +215,7 @@ class Term(aclgenerator.Term):
 
         if "hopopt" in self.term.protocol:
             loc = self.term.protocol.index("hopopt")
-            self.term.protocol[loc] = "hop-by-hop"
+            self.term.protocol[loc] = "0"
 
     def __str__(self):
 
@@ -256,13 +256,13 @@ class Term(aclgenerator.Term):
         # term verbatim output - this will skip over normal term creation
         # code.  warning generated from policy.py if appropriate.
         if self.term.verbatim:
-            for next_term in self.term.verbatim:
-                if next_term[0] == self._PLATFORM:
+            for line in self.term.verbatim:
+                if line[0] == self._PLATFORM:
                     # pass MATCH_INDENT, but this should be ignored in the
                     # rendering
-                    config.Append(MATCH_INDENT, str(next_term[1]),
-                                  verbatim=True)
-                return str(config)
+                    config.Append(MATCH_INDENT, str(line[1]), verbatim=True)
+            # we return immediately, there's no action to be formed
+            return str(config)
 
         # helper for per-address-family keywords.
         family_keywords = self._TERM_TYPE.get(self.term_type)
@@ -283,11 +283,11 @@ class Term(aclgenerator.Term):
                 # if tcp-established specified, but more than just tcp is
                 # included in the protocols, raise an error
                 elif opt.startswith("tcp-established"):
-                    if self.term.protocol == ["tcp"]:
+                    if (self.term.protocol == ["tcp"] and "established" not in flags):
                         flags.append(family_keywords["tcp-est"])
-                    else:
+                    if (len(self.term.protocol) > 1 or self.term.protocol != ["tcp"]):
                         raise TcpEstablishedWithNonTcpError(
-                            "tcp-established can only be used with tcp"
+                            "tcp-established can only be used with tcp "
                             "protocol in term %s"
                             % self.term.name
                         )
@@ -314,11 +314,8 @@ class Term(aclgenerator.Term):
             self.term.destination_port or
             self.term.destination_prefix or
             self.term.destination_prefix_except or
-            # self.term.forwarding_class or
-            # self.term.forwarding_class_except or
             self.term.fragment_offset or
             self.term.hop_limit or
-            self.term.next_ip or
             self.term.port or
             self.term.protocol or
             self.term.protocol_except or
@@ -425,30 +422,35 @@ class Term(aclgenerator.Term):
 
                 config.Append(MATCH_INDENT, " %s" % dst_pfx_str)
 
-            # protocol
+            # PROTOCOL MATCHES
             protocol_str = ""
             if self.term.protocol:
-                protocol_str += (
-                    family_keywords["protocol"] + " " +
-                    str(self._Group(self.term.protocol))
-                )
+                if len(self.term.protocol) > 1:
+                    protocol_str += (
+                        family_keywords["protocol"] + " %s" %
+                        self._Group(self.term.protocol)
+                    )
+                else:
+                    protocol_str += (
+                        family_keywords["protocol"] +
+                        " %s" % self.term.protocol[0]
+                    )
 
-            # if we have TCP flags, insert them prior to src/dst port elements
-            if self.term.protocol == ["tcp"] and len(flags) > 0:
-                protocol_str += " flags " + " ".join(flags)
+                if self.term.protocol == ["tcp"]:
+                    if len(flags) > 0:
+                        protocol_str += " flags " + " ".join(flags)
 
-            # protocol
+            # protocol-except handling
             if self.term.protocol_except:
                 config.Append(
                     MATCH_INDENT,
                     family_keywords["protocol-except"] + " " +
                     self._Range(self.term.protocol_except))
 
-            # port
+            # tcp/udp port generation
             port_str = ""
             sport = ""
             dport = ""
-
             # TODO(sulrich): fix port range generation
             # source port
             if self.term.source_port:
@@ -462,7 +464,39 @@ class Term(aclgenerator.Term):
                 port_str += dport
 
             if port_str != "":
-                config.Append(MATCH_INDENT, protocol_str + port_str)
+                protocol_str += port_str
+
+            # icmp[v6] handling
+            if (self.term.protocol == ["icmp"] or self.term.protocol == ["icmpv6"]):
+                icmp_types = [""]
+                icmp_type_str = " type "
+                icmp_code_str = ""
+
+                if self.term.icmp_type:
+                    icmp_types = self.NormalizeIcmpTypes(
+                        self.term.icmp_type, self.term.protocol, self.term_type
+                    )
+                if icmp_types != [""]:
+                    for t in icmp_types:
+                        icmp_type_str += "%s," % t
+
+                    if icmp_type_str.endswith(","):
+                        icmp_type_str = icmp_type_str[:-1]  # chomp trailing ','
+                        if not self.term.icmp_code:
+                            icmp_type_str += " code all"
+
+                if self.term.icmp_code and len(icmp_types) <= 1:
+                    # TODO(sulrich): fix icmp_code handling
+                    icmp_codes = self._Group(self.term.icmp_code)
+                    icmp_codes = re.sub(r" ", ",", icmp_codes)
+                    icmp_code_str += " code %s" % icmp_codes
+
+                if self.term.icmp_type:
+                    protocol_str += icmp_type_str
+                if self.term.icmp_code:
+                    protocol_str += icmp_code_str
+
+            config.Append(MATCH_INDENT, protocol_str)
 
             # packet length
             if self.term.packet_length:
@@ -476,38 +510,15 @@ class Term(aclgenerator.Term):
                     "fragment offset %s" % self.term.fragment_offset
                 )
 
+            if self.term.hop_limit:
+                config.Append(MATCH_INDENT, "ttl %s" % self.term.hop_limit)
+
             if self.term.ttl:
                 config.Append(MATCH_INDENT, "ttl %s" % self.term.ttl)
 
             if len(misc_options) > 0:
                 for mopt in misc_options:
                     config.Append(MATCH_INDENT, mopt)
-
-            # icmp-types
-            icmp_types = [""]
-            icmp_type_str = " type "
-            if self.term.icmp_type:
-                icmp_types = self.NormalizeIcmpTypes(
-                    self.term.icmp_type, self.term.protocol, self.term_type
-                )
-            if icmp_types != [""]:
-                for t in icmp_types:
-                    icmp_type_str += "%s," % t
-
-                if icmp_type_str.endswith(","):
-                    icmp_type_str = icmp_type_str[:-1]  # chomp the trailing ','
-                    icmp_type_str += " code all"
-
-            if self.term.icmp_code and len(icmp_types) <= 1:
-                # TODO(sulrich): fix icmp_code handling
-                # icmp_type_str = " code %s" % self.create_icmp_codes()
-                config.Append(
-                    MATCH_INDENT,
-                    "icmp-code %s" % self._Group(self.term.icmp_code)
-                )
-
-            if self.term.icmp_type:
-                config.Append(MATCH_INDENT, protocol_str + icmp_type_str)
 
         # ACTION HANDLING
         # if there's no action, then this is an implicit permit
@@ -690,30 +701,45 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
         )._BuildTokens()
 
         supported_tokens |= {
+            "action",
             "address",
             "comment",
             "counter",
+            "destination_address",
+            "destination_address_exclude",
+            "destination_port",
             "destination_prefix",
             "destination_prefix_except",
-            # "encapsulate",
             "dscp_set",
+            "expiration",
             "fragment_offset",
             "hop_limit",
             "icmp_code",
+            "icmp_type",
             "logging",
+            "name",
+            "option",
             "packet_length",
+            "platform",
+            "platform_exclude",
             "port",
+            "protocol",
             "protocol_except",
+            "source_address",
+            "source_address_exclude",
+            "source_port",
             "source_prefix",
             "source_prefix_except",
+            "translated",
             "ttl",
+            "verbatim"
         }
         supported_sub_tokens.update(
             {
                 "option": {
                     "established",
                     "is-fragment",
-                    ".*",  # make ArbitraryOptions work, yolo.
+                    ".*",  # accept arbitrary options
                     "tcp-established",
                     "tcp-initial",
                 }
@@ -814,7 +840,6 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                     term.flexible_match_range or
                     term.forwarding_class or
                     term.forwarding_class_except or
-                    term.hop_limit or
                     term.next_ip or
                     term.port or
                     term.traffic_type
@@ -828,23 +853,11 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                     )
                     continue
 
-                # has_unsupported_actions = (
-                #     term.encapsulate or
-                #     term.routing_instance
-                # )
-                # if has_unsupported_actions:
-                #     logging.warning(
-                #         "WARNING: term %s in policy %s uses "
-                #         "unsupported actions and will not be rendered.",
-                #         term.name,
-                #         filter_name,
-                #     )
-                #     continue
-
-                # if 'is-fragment' in term.option and filter_type == 'ipv6':
-                #     raise AristaTpFragmentInV6Error(
-                #         'the term %s uses "is-fragment" but '
-                #         'is a v6 policy.' % term.name)
+                if (("is-fragment" in term.option or
+                     "fragment" in term.option) and filter_type == "inet6"):
+                    raise AristaTpFragmentInV6Error(
+                        "the term %s uses is-fragment but "
+                        "is a v6 policy." % term.name)
 
                 # generate the prefix sets when there are inline addres
                 # exclusions in a term. these will be referenced within the term
@@ -857,7 +870,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                     policy_field_sets.append(fs)
 
                 if term.destination_address_exclude:
-                    fs = self._GenPrefixFieldset("dst"
+                    fs = self._GenPrefixFieldset("dst",
                                                  "%s" % term.name,
                                                  term.destination_address,
                                                  term.destination_address_exclude,
