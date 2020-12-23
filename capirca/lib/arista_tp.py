@@ -138,7 +138,7 @@ class Config(object):
 
 
 class Term(aclgenerator.Term):
-    """an individual AristaTrafficPolicy term.
+    """represents an individual AristaTrafficPolicy term.
 
     mostly useful for the __str__() method.
 
@@ -167,6 +167,7 @@ class Term(aclgenerator.Term):
     # it's critical that the members of each filter type be the same, that is
     # to say that if _TERM_TYPE.get('inet').get('foo') returns something,
     # _TERM_TYPE.get('inet6').get('foo') must return the inet6 equivalent.
+    #
     _TERM_TYPE = {
         "inet": {
             "addr_fam": "ipv4",
@@ -174,7 +175,16 @@ class Term(aclgenerator.Term):
             "saddr": "source prefix",
             "daddr": "destination prefix",
             "protocol": "protocol",
+            "established": "established",
+            # tcp flags
+            "ack": "ack",
+            "fin": "fin",
+            "initial": "initial",
+            "psh": "syn",
+            "rst": "rst",
+            "syn": "syn",
             "tcp-est": "established",
+            "urg": "urg",
         },
         "inet6": {
             "addr_fam": "ipv6",
@@ -182,7 +192,15 @@ class Term(aclgenerator.Term):
             "saddr": "source prefix",
             "daddr": "destination prefix",
             "protocol": "protocol",
+            # tcp flags
+            "ack": "ack",
+            "fin": "fin",
+            "initial": "initial",
+            "psh": "syn",
+            "rst": "rst",
+            "syn": "syn",
             "tcp-est": "established",
+            "urg": "urg",
         },
     }
 
@@ -211,7 +229,6 @@ class Term(aclgenerator.Term):
                 return ""
 
         config = Config()
-        from_str = []
 
         # don't render icmpv6 protocol terms under inet, or icmp under inet6
         if (self.term_type == "inet6" and "icmp" in self.term.protocol) or (
@@ -249,48 +266,67 @@ class Term(aclgenerator.Term):
 
         # helper for per-address-family keywords.
         family_keywords = self._TERM_TYPE.get(self.term_type)
-
+        flags = []
+        misc_options = []
         # option processing
         if self.term.option:
-            print("options:", self.term.option)
             for opt in [str(x) for x in self.term.option]:
+                # note: traffic policies support additional tcp flags. for now,
+                # only handle the required elements
+                #
                 # only append tcp-established for option established when
                 # tcp is the only protocol
                 if opt.startswith("established"):
                     if self.term.protocol == ["tcp"]:
-                        if "tcp-established;" not in from_str:
-                            from_str.append(family_keywords["tcp-est"])
+                        if "established" not in flags:
+                            flags.append(family_keywords["tcp-est"])
                 # if tcp-established specified, but more than just tcp is
                 # included in the protocols, raise an error
                 elif opt.startswith("tcp-established"):
-                    flag = family_keywords["tcp-est"]
                     if self.term.protocol == ["tcp"]:
-                        if flag not in from_str:
-                            from_str.append(flag)
+                        flags.append(family_keywords["tcp-est"])
                     else:
                         raise TcpEstablishedWithNonTcpError(
                             "tcp-established can only be used with tcp"
                             "protocol in term %s"
                             % self.term.name
                         )
-                elif opt.startswith("initial") and "tcp" in self.term.protocol:
-                    from_str.append("tcp-initial;")
+                elif (opt.startswith("initial") and
+                      self.term.protocol == ["tcp"]):
+                    flags.append(family_keywords["initial"])
+                elif opt.startswith("rst") and self.term.protocol == ["tcp"]:
+                    flags.append(family_keywords["rst"])
+                elif "fragment" in opt:
+                    # handles the is-fragment and first-fragment options
+                    misc_options.append("fragment")
 
                 # we don't have a special way of dealing with this, so we output
                 # it and hope the user knows what they're doing.
                 else:
-                    from_str.append("%s" % opt)
+                    logging.info(
+                        "INFO: term %s uses an unsupported option (%s)",
+                        self.term.name,
+                        opt
+                    )
 
         has_match_criteria = (
             self.term.destination_address or
-            self.term.destination_port or self.term.destination_prefix or
+            self.term.destination_port or
+            self.term.destination_prefix or
             self.term.destination_prefix_except or
-            self.term.forwarding_class or self.term.forwarding_class_except or
-            self.term.fragment_offset or self.term.hop_limit or
-            self.term.next_ip or self.term.port or self.term.protocol or
-            self.term.protocol_except or self.term.source_address or
-            self.term.source_port or self.term.source_prefix or
-            self.term.source_prefix_except or self.term.traffic_type or
+            # self.term.forwarding_class or
+            # self.term.forwarding_class_except or
+            self.term.fragment_offset or
+            self.term.hop_limit or
+            self.term.next_ip or
+            self.term.port or
+            self.term.protocol or
+            self.term.protocol_except or
+            self.term.source_address or
+            self.term.source_port or
+            self.term.source_prefix or
+            self.term.source_prefix_except or
+            self.term.traffic_type or
             self.term.ttl
         )
 
@@ -300,7 +336,6 @@ class Term(aclgenerator.Term):
                 "match %s %s" % (self.term.name, family_keywords["addr_fam"]),
             )
             term_af = self.AF_MAP.get(self.term_type)
-
             # comment - could use a little formatting love
             if self.term.owner and not self.noverbose:
                 self.term.comment.append("owner: %s" % self.term.owner)
@@ -311,30 +346,25 @@ class Term(aclgenerator.Term):
 
             # source address
             src_addr = self.term.GetAddressOfVersion("source_address", term_af)
+
             src_addr_ex = self.term.GetAddressOfVersion(
                 "source_address_exclude", term_af
             )
-            print("s a_ex:", src_addr_ex)
             src_addr, src_addr_ex = self._MinimizePrefixes(src_addr,
                                                            src_addr_ex)
 
             if src_addr:
                 src_str = "source prefix"
                 if src_addr_ex:
+                    # this should correspond to the generated field set
                     src_str += " src-%s" % self.term.name
-                    # we need to put the resulting field-set somewhere
-                    # src_fs = self._genPrefixFieldset('dst',
-                    #                                   self.term.name,
-                    #                                   src_addr,
-                    #                                   src_addr_ex,
-                    #                                  term_af)
-                    # print(src_fs)
                 else:
                     for addr in src_addr:
                         src_str += " %s" % addr
 
                 config.Append(MATCH_INDENT, src_str)
 
+            # TODO(sulrich): is this necessary?
             elif self.term.source_address:
                 logging.debug(
                     self.NO_AF_LOG_ADDR.substitute(
@@ -347,7 +377,6 @@ class Term(aclgenerator.Term):
             # destination address
             dst_addr = self.term.GetAddressOfVersion("destination_address",
                                                      term_af)
-            # print(dst_addr)
             dst_addr_ex = self.term.GetAddressOfVersion(
                 "destination_address_exclude", term_af
             )
@@ -357,25 +386,15 @@ class Term(aclgenerator.Term):
             if dst_addr:
                 dst_str = "destination prefix"
                 if dst_addr_ex:
+                    # this should correspond to the generated field set
                     dst_str += " dst-%s" % self.term.name
-                    # 20201219 (sulrich): currently, t-p's dont support use of
-                    # `except` inline in a match statement, these are only
-                    # supported in field-sets. as such, generate a field-set and
-                    # reference it accordingly
-                    #
-                    # we need to put the resulting field-set somewhere
-                    # dst_fs = self._genPrefixFieldset('dst',
-                    #                                   self.term.name,
-                    #                                   dst_addr,
-                    #                                   dst_addr_ex,
-                    #                                   term_af)
-                    # print(dst_fs)
                 else:
                     for addr in dst_addr:
                         dst_str += " %s" % addr
 
                 config.Append(MATCH_INDENT, dst_str)
 
+            # TODO(sulrich): is this necessary?
             elif self.term.destination_address:
                 logging.debug(
                     self.NO_AF_LOG_ADDR.substitute(
@@ -385,8 +404,7 @@ class Term(aclgenerator.Term):
                 )
                 return ""
 
-            # source prefix <except> list
-            #     self._genPrefixFieldset(dir, name, i_pfxs, e_pfxs, af):
+            # TODO(sulrich): are field-set except matches valid?
             if self.term.source_prefix or self.term.source_prefix_except:
                 src_pfx_str = "source address"
                 for pfx in self.term.source_prefix:
@@ -412,7 +430,12 @@ class Term(aclgenerator.Term):
             if self.term.protocol:
                 protocol_str += (
                     family_keywords["protocol"] + " " +
-                    self._Group(self.term.protocol))
+                    str(self._Group(self.term.protocol))
+                )
+
+            # if we have TCP flags, insert them prior to src/dst port elements
+            if self.term.protocol == ["tcp"] and len(flags) > 0:
+                protocol_str += " flags " + " ".join(flags)
 
             # protocol
             if self.term.protocol_except:
@@ -441,9 +464,6 @@ class Term(aclgenerator.Term):
             if port_str != "":
                 config.Append(MATCH_INDENT, protocol_str + port_str)
 
-            for next_str in from_str:
-                config.Append(MATCH_INDENT, next_str)
-
             # packet length
             if self.term.packet_length:
                 config.Append(MATCH_INDENT,
@@ -458,6 +478,10 @@ class Term(aclgenerator.Term):
 
             if self.term.ttl:
                 config.Append(MATCH_INDENT, "ttl %s" % self.term.ttl)
+
+            if len(misc_options) > 0:
+                for mopt in misc_options:
+                    config.Append(MATCH_INDENT, mopt)
 
             # icmp-types
             icmp_types = [""]
@@ -546,23 +570,6 @@ class Term(aclgenerator.Term):
 
         pass
 
-    def _GenPrefixFieldset(self, direction, name, pfxs, ex_pfxs, af):
-        field_list = ""
-
-        for p in pfxs:
-            field_list += " %s" % p
-
-        for p in ex_pfxs:
-            field_list += " except %s" % p
-
-        fieldset_hdr = (
-            TERM_INDENT + "field-set " +
-            af + " prefix " + direction + "-" + ("%s" % name)
-        )
-        field_set = fieldset_hdr + field_list
-
-        return field_set
-
     @staticmethod
     def NextIpCheck(next_ip, term_name):
         if len(next_ip) > 1:
@@ -572,7 +579,7 @@ class Term(aclgenerator.Term):
             )
         if next_ip[0].num_addresses > 1:
             raise AristaTpNextIpError(
-                "The following term has a subnet "
+                "the following term has a subnet "
                 "instead of a host: %s" % term_name
             )
 
@@ -714,6 +721,22 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
         )
         return supported_tokens, supported_sub_tokens
 
+    def _GenPrefixFieldset(self, direction, name, pfxs, ex_pfxs, af):
+        field_list = ""
+
+        for p in pfxs:
+            field_list += " %s" % p
+        for p in ex_pfxs:
+            field_list += " except %s" % p
+
+        fieldset_hdr = (
+            "field-set " + af + " prefix " +
+            direction + "-" + ("%s" % name) + "\n"
+        )
+        field_set = fieldset_hdr + (" " * 6) + field_list
+
+        return field_set
+
     def _TranslatePolicy(self, pol, exp_info):
         self.arista_traffic_policies = []
 
@@ -735,6 +758,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
             term_names = set()
             new_terms = []
+            policy_field_sets = []
             policy_counters = set()  # a set of the counters in the policy
             for term in terms:
                 term.name = self.FixTermLength(term.name)
@@ -822,10 +846,28 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                 #         'the term %s uses "is-fragment" but '
                 #         'is a v6 policy.' % term.name)
 
+                # generate the prefix sets when there are inline addres
+                # exclusions in a term. these will be referenced within the term
+                if term.source_address_exclude:
+                    fs = self._GenPrefixFieldset("src",
+                                                 "%s" % term.name,
+                                                 term.source_address,
+                                                 term.source_address_exclude,
+                                                 filter_type)
+                    policy_field_sets.append(fs)
+
+                if term.destination_address_exclude:
+                    fs = self._GenPrefixFieldset("dst"
+                                                 "%s" % term.name,
+                                                 term.destination_address,
+                                                 term.destination_address_exclude,
+                                                 filter_type)
+                    policy_field_sets.append(fs)
+
                 if term.address:
                     # if the 'address' keyword is used we will generate 2 match
                     # terms that need to be rendered. (1) for src, (1) for dst.
-                    # if a counter is assocaed with this term, we'll generate
+                    # if a counter is assocaed with this term, generate
                     # matched counters as well.
 
                     # src term
@@ -867,7 +909,12 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                     new_terms.append(self._TERM(term, filter_type, noverbose))
 
             self.arista_traffic_policies.append(
-                (header, filter_name, filter_type, new_terms, policy_counters)
+                (header,
+                 filter_name,
+                 filter_type,
+                 new_terms,
+                 policy_counters,
+                 policy_field_sets)
             )
 
     def __str__(self):
@@ -879,16 +926,18 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             filter_type,
             terms,
             counters,
+            field_sets,
         ) in self.arista_traffic_policies:
             # add the header information
             config.Append("", "traffic-policies")
 
+            if len(field_sets) > 0:
+                for fs in field_sets:
+                    config.Append("   ", fs)
+
             # if there are counters, export the list of counters
             if len(counters) > 0:
-                str_counters = ""
-                for ctr in counters:
-                    str_counters += " %s" % ctr
-
+                str_counters = " ".join(counters)
                 config.Append("   ", "counters %s" % str_counters)
 
             config.Append("   ", "no traffic-policy %s" % filter_name)
