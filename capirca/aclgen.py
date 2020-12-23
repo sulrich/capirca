@@ -375,11 +375,10 @@ def RenderFile(base_directory, input_file, output_directory, definitions,
       RenderACL(str(acl_obj), acl_obj.SUFFIX, output_directory,
                 input_file, write_files)
   # TODO(robankeny) add additional errors.
-  # TODO(sulrich) figure out how to handle the arista_tp exceptions
   except (juniper.Error, junipermsmpc.Error, junipersrx.Error, cisco.Error,
           ipset.Error, iptables.Error, speedway.Error, pcap.Error,
           aclgenerator.Error, aruba.Error, nftables.Error, gce.Error,
-          cloudarmor.Error) as e:
+          cloudarmor.Error, arista_tp.Error) as e:
     raise ACLGeneratorError(
         'Error generating target ACL for %s:\n%s' % (input_file, e))
 
