@@ -34,7 +34,6 @@ from capirca.lib import policy
 
 # from six.moves import range
 
-import pprint as pp
 
 GOOD_HEADER = """
 header {
@@ -76,7 +75,7 @@ header {
 """
 BAD_HEADER_2 = """
 header {
-  target:: arista_tp test-filter inetpoop
+  target:: arista_tp test-filter inetfoo
 }
 """
 
@@ -492,6 +491,7 @@ SUPPORTED_TOKENS = frozenset(
         "destination_port",
         "destination_prefix",
         "destination_prefix_except",
+        "dscp_set",
         "expiration",
         "fragment_offset",
         "hop_limit",
@@ -512,6 +512,8 @@ SUPPORTED_TOKENS = frozenset(
         "source_port",
         "source_prefix",
         "source_prefix_except",
+        "stateless_reply",
+        "translated",
         "ttl",
         "verbatim",
     ]
@@ -565,11 +567,8 @@ SUPPORTED_SUB_TOKENS = {
     },
     "option": {
         "established",
-        "first-fragment",
-        "inactive",
         "is-fragment",
         ".*",  # not actually a lex token!
-        "sample",
         "tcp-established",
         "tcp-initial",
     },
@@ -1029,10 +1028,6 @@ class AristaTpTest(unittest.TestCase):
             policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_28, self.naming), EXP_INFO
         )
         st, sst = atp._BuildTokens()
-        print("atp supported: ", pp.pprint(st))
-        print("atp sub-tokens:", pp.pprint(sst))
-        print("test supported: ", pp.pprint(SUPPORTED_TOKENS))
-        print("test sub-tokens:", pp.pprint(SUPPORTED_SUB_TOKENS))
 
         self.assertEqual(st, SUPPORTED_TOKENS)
         self.assertEqual(sst, SUPPORTED_SUB_TOKENS)
