@@ -157,7 +157,7 @@ class Term(aclgenerator.Term):
         "reject-with-tcp-rst": "drop",  # ibid
         "next": "continue",
     }
-
+    AF_MAP = {"inet": 4, "inet6": 6, "mixed": None}
     # the following lookup table is used to map between the various types of
     # filters the generator can render.  as new differences are
     # encountered, they should be added to this table.  Accessing members
@@ -202,6 +202,22 @@ class Term(aclgenerator.Term):
             "tcp-est": "established",
             "urg": "urg",
         },
+        "mixed": {
+            "addr_fam": "ipv6",
+            "addr": "address",
+            "saddr": "source prefix",
+            "daddr": "destination prefix",
+            "protocol": "protocol",
+            # tcp flags
+            "ack": "ack",
+            "fin": "fin",
+            "initial": "initial",
+            "psh": "syn",
+            "rst": "rst",
+            "syn": "syn",
+            "tcp-est": "established",
+            "urg": "urg",
+        }
     }
 
     def __init__(self, term, term_type, noverbose):
@@ -496,7 +512,9 @@ class Term(aclgenerator.Term):
                 if self.term.icmp_code:
                     protocol_str += icmp_code_str
 
-            config.Append(MATCH_INDENT, protocol_str)
+            # don't render emppty protocol strings.
+            if protocol_str != "":
+                config.Append(MATCH_INDENT, protocol_str)
 
             # packet length
             if self.term.packet_length:
@@ -687,7 +705,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
     _AF_MAP = {"inet": 4, "inet6": 6, "mixed": None}
     _DEFAULT_PROTOCOL = "ip"
     _PLATFORM = "arista_tp"
-    _SUPPORTED_AF = set(("inet", "inet6"))
+    _SUPPORTED_AF = set(("inet", "inet6", "mixed"))
     _TERM = Term
 
     SUFFIX = ".atp"
@@ -719,6 +737,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             "logging",
             "name",
             "option",
+            "owner",
             "packet_length",
             "platform",
             "platform_exclude",
@@ -726,11 +745,8 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             "protocol",
             "protocol_except",
             "source_address",
-            "source_address_exclude",
             "source_port",
             "source_prefix",
-            "source_prefix_except",
-            "translated",
             "ttl",
             "verbatim"
         }
