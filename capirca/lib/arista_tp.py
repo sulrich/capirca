@@ -59,6 +59,8 @@ TERM_INDENT = 2 * INDENT_STR
 MATCH_INDENT = 3 * INDENT_STR
 ACTION_INDENT = 4 * INDENT_STR
 
+DEFAULT_TERM_SUFFIX = "-all-default"
+
 
 # generic error class
 class Error(Exception):
@@ -144,7 +146,7 @@ class Term(aclgenerator.Term):
 
     attributes:
      term: the term object from the policy.
-     term_type: string indicating type of term, inet, inet6 icmp etc.
+     term_type: string indicating type of term, inet, inet6 etc.
      noverbose: boolean to disable verbosity.
 
     """
@@ -157,7 +159,10 @@ class Term(aclgenerator.Term):
         "reject-with-tcp-rst": "drop",  # ibid
         "next": "continue",
     }
-    AF_MAP = {"inet": 4, "inet6": 6, "mixed": None}
+    AF_MAP = {
+        "inet": 4,
+        "inet6": 6,
+    }
     # the following lookup table is used to map between the various types of
     # filters the generator can render.  as new differences are
     # encountered, they should be added to this table.  Accessing members
@@ -202,22 +207,6 @@ class Term(aclgenerator.Term):
             "tcp-est": "established",
             "urg": "urg",
         },
-        "mixed": {
-            "addr_fam": "ipv6",
-            "addr": "address",
-            "saddr": "source prefix",
-            "daddr": "destination prefix",
-            "protocol": "protocol",
-            # tcp flags
-            "ack": "ack",
-            "fin": "fin",
-            "initial": "initial",
-            "psh": "syn",
-            "rst": "rst",
-            "syn": "syn",
-            "tcp-est": "established",
-            "urg": "urg",
-        }
     }
 
     def __init__(self, term, term_type, noverbose):
@@ -234,7 +223,6 @@ class Term(aclgenerator.Term):
             self.term.protocol[loc] = "0"
 
     def __str__(self):
-
         # verify platform specific terms. skip the whole term if the platform
         # does not match.
         if self.term.platform:
@@ -244,7 +232,14 @@ class Term(aclgenerator.Term):
             if self._PLATFORM in self.term.platform_exclude:
                 return ""
 
+        print("-- term_type:", self.term_type, self.term.name)
+
         config = Config()
+
+        # a LoL which will be appended to the config at the end of this method
+        # elements will be of the form [indentation, string, verbatim] by
+        # default verbatim = False
+        term_block = []
 
         # don't render icmpv6 protocol terms under inet, or icmp under inet6
         if (self.term_type == "inet6" and "icmp" in self.term.protocol) or (
@@ -267,7 +262,7 @@ class Term(aclgenerator.Term):
             if self.term.comment and not self.noverbose:
                 for comment in self.term.comment:
                     for line in comment.split("\n"):
-                        config.Append(MATCH_INDENT, "!! %s" % line)
+                        term_block.append([MATCH_INDENT, "!! %s" % line, False])
 
         # term verbatim output - this will skip over normal term creation
         # code.  warning generated from policy.py if appropriate.
@@ -276,12 +271,13 @@ class Term(aclgenerator.Term):
                 if line[0] == self._PLATFORM:
                     # pass MATCH_INDENT, but this should be ignored in the
                     # rendering
-                    config.Append(MATCH_INDENT, str(line[1]), verbatim=True)
+                    term_block.append([MATCH_INDENT, str(line[1]), True])
             # we return immediately, there's no action to be formed
+            for i, s, v in term_block:
+                config.Append(i, s, verbatim=v)
+
             return str(config)
 
-        # helper for per-address-family keywords.
-        family_keywords = self._TERM_TYPE.get(self.term_type)
         flags = []
         misc_options = []
         # option processing
@@ -295,12 +291,12 @@ class Term(aclgenerator.Term):
                 if opt.startswith("established"):
                     if self.term.protocol == ["tcp"]:
                         if "established" not in flags:
-                            flags.append(family_keywords["tcp-est"])
+                            flags.append("established")
                 # if tcp-established specified, but more than just tcp is
                 # included in the protocols, raise an error
                 elif opt.startswith("tcp-established"):
                     if (self.term.protocol == ["tcp"] and "established" not in flags):
-                        flags.append(family_keywords["tcp-est"])
+                        flags.append("established")
                     if (len(self.term.protocol) > 1 or self.term.protocol != ["tcp"]):
                         raise TcpEstablishedWithNonTcpError(
                             "tcp-established can only be used with tcp "
@@ -309,9 +305,9 @@ class Term(aclgenerator.Term):
                         )
                 elif (opt.startswith("initial") and
                       self.term.protocol == ["tcp"]):
-                    flags.append(family_keywords["initial"])
+                    flags.append("initial")
                 elif opt.startswith("rst") and self.term.protocol == ["tcp"]:
-                    flags.append(family_keywords["rst"])
+                    flags.append("rst")
                 elif "fragment" in opt:
                     # handles the is-fragment and first-fragment options
                     misc_options.append("fragment")
@@ -327,26 +323,30 @@ class Term(aclgenerator.Term):
 
         has_match_criteria = (
             self.term.destination_address or
+            self.term.destination_address_exclude or
             self.term.destination_port or
             self.term.destination_prefix or
-            self.term.destination_prefix_except or
             self.term.fragment_offset or
             self.term.hop_limit or
             self.term.port or
             self.term.protocol or
             self.term.protocol_except or
             self.term.source_address or
+            self.term.source_address_exclude or
             self.term.source_port or
             self.term.source_prefix or
-            self.term.source_prefix_except or
-            self.term.traffic_type or
             self.term.ttl
         )
 
         if has_match_criteria:
-            config.Append(
-                TERM_INDENT,
-                "match %s %s" % (self.term.name, family_keywords["addr_fam"]),
+            # helper for per-address-family keywords.
+            family_keywords = self._TERM_TYPE.get(self.term_type)
+
+            term_block.append(
+                [TERM_INDENT,
+                 "match %s %s" % (self.term.name, family_keywords["addr_fam"]),
+                 False
+                 ]
             )
             term_af = self.AF_MAP.get(self.term_type)
             # comment - could use a little formatting love
@@ -355,7 +355,7 @@ class Term(aclgenerator.Term):
             if self.term.comment and not self.noverbose:
                 for comment in self.term.comment:
                     for line in comment.split("\n"):
-                        config.Append(MATCH_INDENT, "!! " + line)
+                        term_block.append([MATCH_INDENT, "!! " + line, False])
 
             # source address
             src_addr = self.term.GetAddressOfVersion("source_address", term_af)
@@ -375,7 +375,7 @@ class Term(aclgenerator.Term):
                     for addr in src_addr:
                         src_str += " %s" % addr
 
-                config.Append(MATCH_INDENT, src_str)
+                term_block.append([MATCH_INDENT, src_str, False])
 
             # TODO(sulrich): is this necessary?
             elif self.term.source_address:
@@ -405,7 +405,7 @@ class Term(aclgenerator.Term):
                     for addr in dst_addr:
                         dst_str += " %s" % addr
 
-                config.Append(MATCH_INDENT, dst_str)
+                term_block.append([MATCH_INDENT, dst_str, False])
 
             # TODO(sulrich): is this necessary?
             elif self.term.destination_address:
@@ -425,7 +425,7 @@ class Term(aclgenerator.Term):
                 for epfx in self.term.source_prefix_except:
                     src_pfx_str += " except %s" % epfx
 
-                config.Append(MATCH_INDENT, " %s" % src_pfx_str)
+                term_block.append([MATCH_INDENT, " %s" % src_pfx_str, False])
 
             # destination prefix <except> list
             if (self.term.destination_prefix or
@@ -436,7 +436,7 @@ class Term(aclgenerator.Term):
                 for epfx in self.term.destination_prefix_except:
                     dst_pfx_str += " except %s" % pfx
 
-                config.Append(MATCH_INDENT, " %s" % dst_pfx_str)
+                term_block.append([MATCH_INDENT, " %s" % dst_pfx_str, False])
 
             # PROTOCOL MATCHES
             protocol_str = ""
@@ -458,10 +458,13 @@ class Term(aclgenerator.Term):
 
             # protocol-except handling
             if self.term.protocol_except:
-                config.Append(
-                    MATCH_INDENT,
-                    family_keywords["protocol-except"] + " " +
-                    self._Range(self.term.protocol_except))
+                term_block.append(
+                    [
+                        MATCH_INDENT,
+                        (family_keywords["protocol-except"] + " " +
+                         self._Range(self.term.protocol_except)),
+                        False
+                    ])
 
             # tcp/udp port generation
             port_str = ""
@@ -514,29 +517,39 @@ class Term(aclgenerator.Term):
 
             # don't render emppty protocol strings.
             if protocol_str != "":
-                config.Append(MATCH_INDENT, protocol_str)
+                term_block.append([MATCH_INDENT, protocol_str, False])
 
             # packet length
             if self.term.packet_length:
-                config.Append(MATCH_INDENT,
-                              "ip length %s" % self.term.packet_length)
+                term_block.append([MATCH_INDENT,
+                                   "ip length %s" % self.term.packet_length,
+                                   False])
 
             # fragment offset
             if self.term.fragment_offset:
-                config.Append(
+                term_block.append([
                     MATCH_INDENT,
-                    "fragment offset %s" % self.term.fragment_offset
-                )
+                    "fragment offset %s" % self.term.fragment_offset,
+                    False
+                ])
 
             if self.term.hop_limit:
-                config.Append(MATCH_INDENT, "ttl %s" % self.term.hop_limit)
+                term_block.append([
+                    MATCH_INDENT,
+                    "ttl %s" % self.term.hop_limit,
+                    False
+                ])
 
             if self.term.ttl:
-                config.Append(MATCH_INDENT, "ttl %s" % self.term.ttl)
+                term_block.append([
+                    MATCH_INDENT,
+                    "ttl %s" % self.term.ttl,
+                    False
+                ])
 
             if len(misc_options) > 0:
                 for mopt in misc_options:
-                    config.Append(MATCH_INDENT, mopt)
+                    term_block.append([MATCH_INDENT, mopt, False])
 
         # ACTION HANDLING
         # if there's no action, then this is an implicit permit
@@ -553,44 +566,48 @@ class Term(aclgenerator.Term):
         # if accept and there are extra actions generate an actions statement
         # if accept and no extra actions don't generate an actions statement
         if self.term.action != ["accept"]:
-            config.Append(MATCH_INDENT, "actions")
-            config.Append(ACTION_INDENT, "%s" % current_action)
+            term_block.append([MATCH_INDENT, "actions", False])
+            term_block.append([ACTION_INDENT, "%s" % current_action, False])
         elif self.term.action == ["accept"] and has_extra_actions:
-            config.Append(MATCH_INDENT, "actions")
+            term_block.append([MATCH_INDENT, "actions", False])
 
         if has_extra_actions:
             # logging
             if self.term.logging:
-                config.Append(ACTION_INDENT, "log")
+                term_block.append([ACTION_INDENT, "log", False])
 
             # counters
             if self.term.counter:
-                config.Append(ACTION_INDENT,
-                              "counter %s" % self.term.counter)
+                term_block.append([ACTION_INDENT,
+                                   "counter %s" % self.term.counter, False])
 
             if self.term.next_ip:
                 self.NextIpCheck(self.term.next_ip, self.term.name)
                 if self.term.next_ip[0].version == 4:
-                    config.Append(
-                        ACTION_INDENT, "next-ip %s;" % str(self.term.next_ip[0])
-                    )
-                else:
-                    config.Append(
+                    term_block.append([
                         ACTION_INDENT,
-                        "next-ip6 %s;" % str(self.term.next_ip[0])
-                    )
+                        "next-ip %s;" % str(self.term.next_ip[0]),
+                        False
+                    ])
+                else:
+                    term_block.append([
+                        ACTION_INDENT,
+                        "next-ip6 %s;" % str(self.term.next_ip[0]), False
+                    ])
 
             # DSCP SET
             if self.term.dscp_set:
-                config.Append(
-                    ACTION_INDENT,
-                    "set dscp %s" % self.term.dscp_set
-                )
+                term_block.append([
+                    ACTION_INDENT, "set dscp %s" % self.term.dscp_set, False
+                ])
 
             # set traffic class
 
-            config.Append(MATCH_INDENT, "!")  # end of actions
-        config.Append(TERM_INDENT, "!")  # end of match entry
+            term_block.append([MATCH_INDENT, "!", False])  # end of actions
+        term_block.append([TERM_INDENT, "!", False])  # end of match entry
+
+        for tindent, tstr, tverb in term_block:
+            config.Append(tindent, tstr, verbatim=tverb)
 
         return str(config)
 
@@ -727,7 +744,6 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             "destination_address_exclude",
             "destination_port",
             "destination_prefix",
-            "destination_prefix_except",
             "dscp_set",
             "expiration",
             "fragment_offset",
@@ -779,6 +795,9 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
         return field_set
 
+    def _ProcessMixedTerm(self, term):
+        pass
+
     def _TranslatePolicy(self, pol, exp_info):
         self.arista_traffic_policies = []
 
@@ -793,149 +812,178 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             filter_name = header.FilterName(self._PLATFORM)
             noverbose = "noverbose" in filter_options[1:]
 
-            # default to ipv4 policies
-            filter_type = "inet"
+            term_names = set()
+            new_terms = []           # list of generated terms
+            policy_field_sets = []   # list of generated field-sets
+            policy_counters = set()  # set of the counters in the policy
+
+            # default to mixed policies
+            filter_type = "mixed"
             if len(filter_options) > 1:
                 filter_type = filter_options[1]
 
-            term_names = set()
-            new_terms = []
-            policy_field_sets = []
-            policy_counters = set()  # a set of the counters in the policy
-            for term in terms:
-                term.name = self.FixTermLength(term.name)
+            # if the filter_type is mixed, we need to iterate through the
+            # supported address families. treat the incoming policy term
+            # (pol_term) as a template fro the term and override the necessary
+            # of the term for the inet6 evaluation.
+            #
+            # only make a copy of the pol_term if filter_type = "mixed"
 
-                # TODO(sulrich) this should be updated to check across AFs
-                if term.name in term_names:
-                    raise AristaTpDuplicateTermError(
-                        "multiple terms named: %s" % term.name
-                    )
+            ftypes = []
+            if filter_type == "mixed":
+                ftypes = ["inet", "inet6"]
+            else:
+                ftypes = [filter_type]
 
-                term_names.add(term.name)
+            print("ftype:", ftypes)
 
-                term = self.FixHighPorts(term, af=filter_type)
-                if not term:
-                    continue
+            for pol_term in terms:
+                for ft in ftypes:
+                    if filter_type == "mixed":
+                        term = copy.deepcopy(pol_term)
+                    else:
+                        term = pol_term
 
-                if term.expiration:
-                    if term.expiration <= exp_info_date:
-                        logging.info(
-                            "INFO: term %s in policy %s expires "
-                            "in less than two weeks.",
-                            term.name,
-                            filter_name,
+                    term_type = ft
+                    term.name = self.FixTermLength(term.name)
+
+                    # TODO(sulrich): if term names become unique to address
+                    # families, this can be removed.
+                    if (filter_type == "mixed" and term_type == "inet6"):
+                        term.name = term.name + "_v6"
+
+                    if term.name in term_names:
+                        raise AristaTpDuplicateTermError(
+                            "multiple terms named: %s" % term.name
                         )
-                    if term.expiration <= current_date:
+
+                    term_names.add(term.name)
+
+                    # start checking and cleaning the term
+
+                    term = self.FixHighPorts(term, af=term_type)
+                    if not term:
+                        continue
+
+                    if term.expiration:
+                        if term.expiration <= exp_info_date:
+                            logging.info(
+                                "INFO: term %s in policy %s expires "
+                                "in less than two weeks.",
+                                term.name,
+                                filter_name,
+                            )
+                        if term.expiration <= current_date:
+                            logging.warning(
+                                "WARNING: term %s in policy %s is expired and "
+                                "will not be rendered.",
+                                term.name,
+                                filter_name,
+                            )
+                            continue
+
+                    # emit warnings for unsupported options / terms
+                    if term.option:
+                        for opt in [str(x) for x in term.option]:
+                            if opt.startswith("sample") or \
+                               opt.startswith("first-fragment"):
+                                logging.warning(
+                                    "WARNING: term %s in policy %s uses an "
+                                    "unsupported option (%s) and will not be "
+                                    "rendered.",
+                                    term.name,
+                                    filter_name,
+                                    opt,
+                                )
+                                continue
+
+                    has_unsupported_match_criteria = (
+                        term.dscp_except or
+                        term.dscp_match or
+                        term.ether_type or
+                        term.flexible_match_range or
+                        term.forwarding_class or
+                        term.forwarding_class_except or
+                        term.next_ip or
+                        term.port or
+                        term.traffic_type
+                    )
+                    if has_unsupported_match_criteria:
                         logging.warning(
-                            "WARNING: term %s in policy %s is expired and "
-                            "will not be rendered.",
+                            "WARNING: term %s in policy %s uses an "
+                            "unsupported match criteria and will not be rendered.",
                             term.name,
                             filter_name,
                         )
                         continue
 
-                # emit warnings for unsupported options / terms
-                if term.option:
-                    for opt in [str(x) for x in term.option]:
-                        if (opt.startswith("sample") or
-                                opt.startswith("first-fragment")):
-                            logging.warning(
-                                "WARNING: term %s in policy %s uses an "
-                                "unsupported option (%s) and will not be "
-                                "rendered.",
-                                term.name,
-                                filter_name,
-                                opt,
-                            )
-                            continue
+                    # if (("is-fragment" in term.option or
+                    #      "fragment" in term.option) and term_type == "inet6"):
+                    #     raise AristaTpFragmentInV6Error(
+                    #         "the term %s uses is-fragment but "
+                    #         "is a v6 policy." % term.name)
 
-                has_unsupported_match_criteria = (
-                    term.dscp_except or
-                    term.dscp_match or
-                    term.ether_type or
-                    term.flexible_match_range or
-                    term.forwarding_class or
-                    term.forwarding_class_except or
-                    term.next_ip or
-                    term.port or
-                    term.traffic_type
-                )
-                if has_unsupported_match_criteria:
-                    logging.warning(
-                        "WARNING: term %s in policy %s uses an "
-                        "unsupported match criteria and will not be rendered.",
-                        term.name,
-                        filter_name,
-                    )
-                    continue
+                    # generate the prefix sets when there are inline addres
+                    # exclusions in a term. these will be referenced within the term
+                    if term.source_address_exclude:
+                        fs = self._GenPrefixFieldset("src",
+                                                     "%s" % term.name,
+                                                     term.source_address,
+                                                     term.source_address_exclude,
+                                                     term_type)
+                        policy_field_sets.append(fs)
 
-                if (("is-fragment" in term.option or
-                     "fragment" in term.option) and filter_type == "inet6"):
-                    raise AristaTpFragmentInV6Error(
-                        "the term %s uses is-fragment but "
-                        "is a v6 policy." % term.name)
+                    if term.destination_address_exclude:
+                        fs = self._GenPrefixFieldset("dst",
+                                                     "%s" % term.name,
+                                                     term.destination_address,
+                                                     term.destination_address_exclude,
+                                                     term_type)
+                        policy_field_sets.append(fs)
 
-                # generate the prefix sets when there are inline addres
-                # exclusions in a term. these will be referenced within the term
-                if term.source_address_exclude:
-                    fs = self._GenPrefixFieldset("src",
-                                                 "%s" % term.name,
-                                                 term.source_address,
-                                                 term.source_address_exclude,
-                                                 filter_type)
-                    policy_field_sets.append(fs)
+                    if term.address:
+                        # if the 'address' keyword is used we will generate 2 match
+                        # terms that need to be rendered. (1) for src, (1) for dst.
+                        # if a counter is associated with this term, generate
+                        # matched counters as well.
 
-                if term.destination_address_exclude:
-                    fs = self._GenPrefixFieldset("dst",
-                                                 "%s" % term.name,
-                                                 term.destination_address,
-                                                 term.destination_address_exclude,
-                                                 filter_type)
-                    policy_field_sets.append(fs)
+                        # src term
+                        src_term = copy.deepcopy(term)
+                        src_term.name = "src-%s" % term.name
+                        src_term.address = ""
+                        src_term.source_address = term.address
+                        src_term.destination_address = ""
+                        new_terms.append(self._TERM(src_term, term_type,
+                                                    noverbose))
 
-                if term.address:
-                    # if the 'address' keyword is used we will generate 2 match
-                    # terms that need to be rendered. (1) for src, (1) for dst.
-                    # if a counter is assocaed with this term, generate
-                    # matched counters as well.
+                        # dst term
+                        dst_term = copy.deepcopy(term)
+                        dst_term.name = "dst-%s" % term.name
+                        dst_term.address = ""
+                        dst_term.destination_address = term.address
+                        dst_term.source_address = ""
+                        new_terms.append(self._TERM(dst_term, term_type,
+                                                    noverbose))
 
-                    # src term
-                    src_term = copy.deepcopy(term)
-                    src_term.name = "src-%s" % term.name
-                    src_term.address = ""
-                    src_term.source_address = term.address
-                    src_term.destination_address = ""
-                    new_terms.append(self._TERM(src_term, filter_type,
-                                                noverbose))
+                        # generate the unique list of named counters
+                        if term.counter:
+                            src_term.counter = ("src-" +
+                                                re.sub(r"\.", "-",
+                                                       str(src_term.counter)))
+                            policy_counters.add(src_term.counter)
+                            dst_term.counter = ("dst-" +
+                                                re.sub(r"\.", "-",
+                                                       str(dst_term.counter)))
+                            policy_counters.add(dst_term.counter)
 
-                    # dst term
-                    dst_term = copy.deepcopy(term)
-                    dst_term.name = "dst-%s" % term.name
-                    dst_term.address = ""
-                    dst_term.destination_address = term.address
-                    dst_term.source_address = ""
-                    new_terms.append(self._TERM(dst_term, filter_type,
-                                                noverbose))
+                    else:
+                        # generate the unique list of named counters
+                        if term.counter:
+                            # we can't have '.' in counter names
+                            term.counter = re.sub(r"\.", "-", str(term.counter))
+                            policy_counters.add(term.counter)
 
-                    # generate the unique list of named counters
-                    if term.counter:
-                        src_term.counter = ("src-" +
-                                            re.sub(r"\.", "-",
-                                                   str(src_term.counter)))
-                        policy_counters.add(src_term.counter)
-                        dst_term.counter = ("dst-" +
-                                            re.sub(r"\.", "-",
-                                                   str(dst_term.counter)))
-                        policy_counters.add(dst_term.counter)
-
-                else:
-                    # generate the unique list of named counters
-                    if term.counter:
-                        # we can't have '.' in counter names
-                        term.counter = re.sub(r"\.", "-", str(term.counter))
-                        policy_counters.add(term.counter)
-
-                    new_terms.append(self._TERM(term, filter_type, noverbose))
+                        new_terms.append(self._TERM(term, term_type, noverbose))
 
             self.arista_traffic_policies.append(
                 (header,
