@@ -34,6 +34,7 @@ from capirca.lib import policy
 
 # from six.moves import range
 
+# import pprint as ppr
 
 GOOD_HEADER = """
 header {
@@ -41,14 +42,25 @@ header {
   target:: arista_tp test-filter
 }
 """
+GOOD_HEADER_INET = """
+header {
+  comment:: "test inet acl"
+  target:: arista_tp test-filter inet
+}
+"""
 
-GOOD_HEADER_V6 = """
+GOOD_HEADER_INET6 = """
 header {
   comment:: "this is a test acl"
   target:: arista_tp test-filter inet6
 }
 """
 
+GOOD_NOVERBOSE_MIXED_HEADER = """
+header {
+  target:: arista_tp test-filter noverbose
+}
+"""
 GOOD_NOVERBOSE_V4_HEADER = """
 header {
   target:: arista_tp test-filter inet noverbose
@@ -60,19 +72,13 @@ header {
   target:: arista_tp test-filter inet6 noverbose
 }
 """
-
-GOOD_HEADER_NOT_INTERFACE_SPECIFIC = """
-header {
-  target:: arista_tp test-filter
-}
-"""
-
 BAD_HEADER = """
 header {
   comment:: "this is a test acl"
   target:: cisco test-filter
 }
 """
+
 BAD_HEADER_2 = """
 header {
   target:: arista_tp test-filter inetfoo
@@ -179,35 +185,6 @@ term good-term-12 {
   source-address:: LOCALHOST
   action:: accept
 }
-"""
-GOOD_TERM_13 = """
-term routing-instance-setting {
-  protocol:: tcp
-  routing-instance:: EXTERNAL-NAT
-}
-"""
-GOOD_TERM_14 = """
-term loss-priority-setting {
-  protocol:: tcp
-  loss-priority:: low
-  action:: accept
-}
-"""
-GOOD_TERM_15 = """
-term precedence-setting {
-  protocol:: tcp
-  destination-port:: SSH
-  precedence:: 7
-  action:: accept
-}
-"""
-GOOD_TERM_16 = """
-term precedence-setting {
-  protocol:: tcp
-  destination-port:: SSH
-  precedence:: 5 7
-  action:: accept
-}p
 """
 GOOD_TERM_17 = """
 term owner-term {
@@ -319,12 +296,6 @@ term good_term_28 {
   action:: accept
 }
 """
-GOOD_TERM_29 = """
-term multiple-forwarding-class {
-  forwarding-class:: floop fluup fleep
-  action:: deny
-}
-"""
 GOOD_TERM_30 = """
 term good-term-30 {
   source-prefix-except:: foo_prefix_list
@@ -344,12 +315,6 @@ term good-term-31 {
 GOOD_TERM_32 = """
 term good_term_32 {
   forwarding-class-except:: floop
-  action:: deny
-}
-"""
-GOOD_TERM_33 = """
-term multiple-forwarding-class-except {
-  forwarding-class-except:: floop fluup fleep
   action:: deny
 }
 """
@@ -479,6 +444,93 @@ term good-term-1 {
   action:: accept
 }
 """
+MIXED_INET = """
+term MIXED_INET {
+  source-address:: GOOGLE_DNS
+  destination-address:: INTERNAL
+  protocol:: tcp udp
+  action:: accept
+}
+  """
+
+INET_MIXED = """
+  term INET_MIXED {
+    source-address:: INTERNAL
+    destination-address:: GOOGLE_DNS
+    protocol:: tcp udp
+    action:: accept
+  }
+  """
+
+MIXED_INET6 = """
+  term MIXED_INET6 {
+    source-address:: GOOGLE_DNS
+    destination-address:: SOME_HOST
+    action:: accept
+  }
+  """
+
+INET6_MIXED = """
+  term INET6_MIXED {
+    source-address:: SOME_HOST
+    destination-address:: GOOGLE_DNS
+    action:: accept
+  }
+  """
+
+MIXED_MIXED = """
+  term MIXED_MIXED {
+    source-address:: GOOGLE_DNS
+    destination-address:: GOOGLE_DNS
+    action:: accept
+  }
+  """
+
+MIXED_ANY = """
+  term MIXED_ANY {
+    source-address:: GOOGLE_DNS
+    action:: accept
+  }
+  """
+
+ANY_MIXED = """
+  term ANY_MIXED {
+    destination-address:: GOOGLE_DNS
+    action:: accept
+  }
+  """
+
+INET_INET = """
+  term INET_INET {
+    source-address:: NTP_SERVERS
+    destination-address:: INTERNAL
+    action:: accept
+  }
+  """
+
+INET6_INET6 = """
+  term INET6_INET6 {
+    source-address:: SOME_HOST
+    destination-address:: SOME_HOST
+    action:: accept
+  }
+  """
+
+INET_INET6 = """
+  term INET_INET6 {
+    source-address:: INTERNAL
+    destination-address:: SOME_HOST
+    action:: accept
+  }
+  """
+
+INET6_INET = """
+  term INET6_INET {
+    source-address:: SOME_HOST
+    destination-address:: INTERNAL
+    action:: accept
+  }
+  """
 
 SUPPORTED_TOKENS = frozenset(
     [
@@ -490,7 +542,6 @@ SUPPORTED_TOKENS = frozenset(
         "destination_address_exclude",
         "destination_port",
         "destination_prefix",
-        "destination_prefix_except",
         "dscp_set",
         "expiration",
         "fragment_offset",
@@ -511,7 +562,6 @@ SUPPORTED_TOKENS = frozenset(
         "source_address_exclude",
         "source_port",
         "source_prefix",
-        "source_prefix_except",
         "stateless_reply",
         "translated",
         "ttl",
@@ -660,7 +710,7 @@ class AristaTpTest(unittest.TestCase):
         self.naming.GetServiceByProto.return_value = ["25"]
 
         atp = arista_tp.AristaTrafficPolicy(
-            policy.ParsePolicy(GOOD_HEADER_V6 + GOOD_TERM_1_V6, self.naming), EXP_INFO
+            policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_1_V6, self.naming), EXP_INFO
         )
         output = str(atp)
         self.assertTrue(
@@ -672,20 +722,20 @@ class AristaTpTest(unittest.TestCase):
 
     def testHopLimit(self):
         atp = arista_tp.AristaTrafficPolicy(
-            policy.ParsePolicy(GOOD_HEADER_V6 + GOOD_TERM_V6_HOP_LIMIT, self.naming),
+            policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_V6_HOP_LIMIT, self.naming),
             EXP_INFO,
         )
         output = str(atp)
         self.assertIn("ttl 25", output, output)
 
     # def testProtocolExcept(self):
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(GOOD_HEADER_V6 + GOOD_TERM_7,
+    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_7,
     #                                            self.naming), EXP_INFO)
     #   output = str(atp)
     #   self.assertIn('next-header-except tcp;', output, output)
 
     # def testIcmpv6Except(self):
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(GOOD_HEADER_V6 + GOOD_TERM_20_V6,
+    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_20_V6,
     #                                            self.naming), EXP_INFO)
     #   output = str(atp)
     #   self.assertIn('next-header-except icmpv6;', output, output)
@@ -747,43 +797,6 @@ class AristaTpTest(unittest.TestCase):
         self.assertNotIn("mary had a second lamb", output, output)
         self.assertNotIn("mary had a third lamb", output, output)
 
-    # def testDscpByte(self):
-    #   self.naming.GetServiceByProto.return_value = ['53']
-
-    #   policy_text = GOOD_HEADER + GOOD_TERM_22
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(policy_text, self.naming),
-    #                         EXP_INFO)
-    #   output = str(atp)
-    #   self.assertIn('dscp b111000;', output, output)
-    #   self.naming.GetServiceByProto.assert_called_once_with('DNS', 'tcp')
-
-    # def testDscpClass(self):
-    #   self.naming.GetServiceByProto.return_value = ['53']
-
-    #   policy_text = GOOD_HEADER + GOOD_TERM_23
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(policy_text, self.naming),
-    #                         EXP_INFO)
-    #   output = str(atp)
-    #   self.assertIn('dscp af42;', output, output)
-    #   self.assertIn('dscp [ af41-af42 5 ];', output, output)
-    #   self.assertIn('dscp-except [ be ];', output, output)
-
-    #   self.naming.GetServiceByProto.assert_called_once_with('DNS', 'tcp')
-
-    # def testDscpIPv6(self):
-    #   self.naming.GetServiceByProto.return_value = ['53']
-
-    #   policy_text = GOOD_HEADER_V6 + GOOD_TERM_23
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(policy_text, self.naming),
-    #                         EXP_INFO)
-    #   output = str(atp)
-    #   self.assertIn('traffic-class af42;', output, output)
-    #   self.assertIn('traffic-class [ af41-af42 5 ];', output, output)
-    #   self.assertIn('traffic-class-except [ be ];', output, output)
-    #   self.assertNotIn('dscp', output, output)
-
-    #   self.naming.GetServiceByProto.assert_called_once_with('DNS', 'tcp')
-
     def testTcpEstablished(self):
         self.naming.GetServiceByProto.return_value = ["53"]
 
@@ -808,45 +821,45 @@ class AristaTpTest(unittest.TestCase):
             [mock.call("DNS", "tcp"), mock.call("DNS", "udp")]
         )
 
-    # def testNoVerboseV4(self):
-    #   addr_list = list()
-    #   for octet in range(0, 256):
-    #     net = nacaddr.IP('192.168.' + str(octet) + '.64/27')
-    #     addr_list.append(net)
-    #   self.naming.GetNetAddr.return_value = addr_list
-    #   self.naming.GetServiceByProto.return_value = ['25']
+    def testNoVerboseV4(self):
+      addr_list = list()
+      for octet in range(0, 256):
+        net = nacaddr.IP('192.168.' + str(octet) + '.64/27')
+        addr_list.append(net)
+      self.naming.GetNetAddr.return_value = addr_list
+      self.naming.GetServiceByProto.return_value = ['25']
 
-    #   atp = arista_tp.AristaTrafficPolicy(
-    #       policy.ParsePolicy(
-    #           GOOD_NOVERBOSE_V4_HEADER + GOOD_TERM_1 + GOOD_TERM_COMMENT,
-    #           self.naming), EXP_INFO)
-    #   self.assertIn('192.168.0.64/27;', str(atp))
-    #   self.assertNotIn('COMMENT', str(atp))
-    #   self.naming.GetNetAddr.assert_called_once_with('SOME_HOST')
-    #   self.naming.GetServiceByProto.assert_called_once_with('SMTP', 'tcp')
+      atp = arista_tp.AristaTrafficPolicy(
+          policy.ParsePolicy(
+              GOOD_NOVERBOSE_V4_HEADER + GOOD_TERM_1 + GOOD_TERM_COMMENT,
+              self.naming), EXP_INFO)
+      self.assertIn('192.168.0.64/27', str(atp))
+      self.assertNotIn('COMMENT', str(atp))
+      self.naming.GetNetAddr.assert_called_once_with('SOME_HOST')
+      self.naming.GetServiceByProto.assert_called_once_with('SMTP', 'tcp')
 
-    # def testNoVerboseV6(self):
-    #   addr_list = list()
-    #   for octet in range(0, 256):
-    #     net = nacaddr.IPv6('2001:db8:1010:' + str(octet) + '::64/64',
-    #                        strict=False)
-    #     addr_list.append(net)
-    #   self.naming.GetNetAddr.return_value = addr_list
-    #   self.naming.GetServiceByProto.return_value = ['25']
+    def testNoVerboseV6(self):
+      addr_list = list()
+      for octet in range(0, 256):
+        net = nacaddr.IPv6('2001:db8:1010:' + str(octet) + '::64/64',
+                           strict=False)
+        addr_list.append(net)
+      self.naming.GetNetAddr.return_value = addr_list
+      self.naming.GetServiceByProto.return_value = ['25']
 
-    #   atp = arista_tp.AristaTrafficPolicy(
-    #       policy.ParsePolicy(
-    #           GOOD_NOVERBOSE_V6_HEADER + GOOD_TERM_1 + GOOD_TERM_COMMENT,
-    #           self.naming), EXP_INFO)
-    #   self.assertIn('2001:db8:1010:90::/61;', str(atp))
-    #   self.assertNotIn('COMMENT', str(atp))
-    #   self.naming.GetNetAddr.assert_called_once_with('SOME_HOST')
-    #   self.naming.GetServiceByProto.assert_called_once_with('SMTP', 'tcp')
+      atp = arista_tp.AristaTrafficPolicy(
+          policy.ParsePolicy(
+              GOOD_NOVERBOSE_V6_HEADER + GOOD_TERM_1 + GOOD_TERM_COMMENT,
+              self.naming), EXP_INFO)
+      self.assertIn('2001:db8:1010:90::/61', str(atp))
+      self.assertNotIn('COMMENT', str(atp))
+      self.naming.GetNetAddr.assert_called_once_with('SOME_HOST')
+      self.naming.GetServiceByProto.assert_called_once_with('SMTP', 'tcp')
 
-    # def testTermTypeIndexKeys(self):
-    #   # ensure an _INET entry for each _TERM_TYPE entry
-    #   self.assertEqual(sorted(arista_tp.Term._TERM_TYPE.keys()),
-    #                    sorted(arista_tp.Term.AF_MAP.keys()))
+    def testTermTypeIndexKeys(self):
+      # ensure an _INET entry for each _TERM_TYPE entry
+      self.assertEqual(sorted(arista_tp.Term._TERM_TYPE.keys()),
+                       sorted(arista_tp.Term.AF_MAP.keys()))
 
     def testArbitraryOptions(self):
         self.naming.GetServiceByProto.return_value = ["22"]
@@ -875,7 +888,7 @@ class AristaTpTest(unittest.TestCase):
     @mock.patch.object(arista_tp.logging, "debug")
     def testIcmpInet6Mismatch(self, mock_debug):
         atp = arista_tp.AristaTrafficPolicy(
-            policy.ParsePolicy(GOOD_HEADER_V6 + BAD_ICMPTYPE_TERM_2, self.naming),
+            policy.ParsePolicy(GOOD_HEADER_INET6 + BAD_ICMPTYPE_TERM_2, self.naming),
             EXP_INFO,
         )
         # output happens in __str__
@@ -893,9 +906,15 @@ class AristaTpTest(unittest.TestCase):
             policy.ParsePolicy(GOOD_HEADER + EXPIRED_TERM, self.naming), EXP_INFO
         )
 
-        mock_warn.assert_called_once_with(
+        # mock_warn.assert_called_once_with(
+        # mock_warn.assert_called_with(
+        #     "WARNING: term %s in policy %s is expired and will " "not be rendered.",
+        #     "is_expired",
+        #     "test-filter",
+        # )
+        mock_warn.assert_called_with(
             "WARNING: term %s in policy %s is expired and will " "not be rendered.",
-            "is_expired",
+            "is_expired_v6",
             "test-filter",
         )
 
@@ -944,52 +963,166 @@ class AristaTpTest(unittest.TestCase):
 
     #   self.naming.GetNetAddr.assert_has_calls(mock_calls)
 
-    # def testMinimizePrefixes(self):
-    #   includes = ['1.0.0.0/8', '2.0.0.0/8']
-    #   excludes = ['1.1.1.1/32', '2.0.0.0/8', '3.3.3.3/32']
+    def testMixedInet(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')],
+            [nacaddr.IP('10.0.0.0/8'), nacaddr.IP('172.16.0.0/12'),
+             nacaddr.IP('192.168.0.0/16')]]
 
-    #   expected = ['1.0.0.0/8;',
-    #               '1.1.1.1/32 except;']
-    #   unexpected = ['2.0.0.0/8;',
-    #                 '2.0.0.0/8 except;',
-    #                 '3.3.3.3/32']
+        pol = policy.ParsePolicy(GOOD_HEADER + MIXED_INET, self.naming)
+        atp = arista_tp.AristaTrafficPolicy(pol, EXP_INFO)
+        output = str(atp)
+        self.assertIn("match MIXED_INET ipv4", output, output)
+        self.assertIn("source prefix 8.8.4.4/32", output, output)
+        self.assertIn("destination prefix 10.0.0.0/8", output, output)
 
-    #   self.naming.GetNetAddr.side_effect = [
-    #       [nacaddr.IPv4(ip) for ip in includes],
-    #       [nacaddr.IPv4(ip) for ip in excludes]]
+    def testInetMixed(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('10.0.0.0/8'), nacaddr.IP('172.16.0.0/12'),
+             nacaddr.IP('192.168.0.0/16')],
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')],
+        ]
 
-    #   atp = arista_tp.AristaTrafficPolicy(
-    #       policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_19, self.naming),
-    #       EXP_INFO)
-    #   output = str(atp)
-    #   for result in expected:
-    #     self.assertIn(result, output,
-    #                   'expected "%s" in %s' % (result, output))
-    #   for result in unexpected:
-    #     self.assertNotIn(result, output,
-    #                      'unexpected "%s" in %s' % (result, output))
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + INET_MIXED, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match INET_MIXED ipv4", output, output)
+        self.assertIn("source prefix 10.0.0.0/8", output, output)
+        self.assertIn("destination prefix 8.8.4.4/32", output, output)
 
-    #   self.naming.GetNetAddr.assert_has_calls([
-    #       mock.call('INCLUDES'), mock.call('EXCLUDES')])
+    def testMixedInet6(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')],
+            [nacaddr.IP('2001:4860:4860::8844')]
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + MIXED_INET6, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        # note that the term name will contain the '_v6' suffix
+        self.assertIn("match MIXED_INET6_v6 ipv6", output, output)
+        self.assertIn("source prefix 2001:4860:4860::8844/128",
+                      output, output)
+        self.assertIn("destination prefix 2001:4860:4860::8844/128",
+                      output, output)
 
-    # def testNoMatchReversal(self):
-    #   includes = ['10.0.0.0/8', '10.0.0.0/10']
-    #   excludes = ['10.0.0.0/9']
+    def testInet6Mixed(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('2001:4860:4860::8844')],
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')]
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + INET6_MIXED, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match INET6_MIXED_v6 ipv6", output, output)
+        self.assertIn("source prefix 2001:4860:4860::8844/128",
+                      output, output)
+        self.assertIn("destination prefix 2001:4860:4860::8844/128",
+                      output, output)
 
-    #   expected = ['10.0.0.0/8;',
-    #               '10.0.0.0/10;',
-    #               '10.0.0.0/9 except;']
+    def testMixedMixed(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')],
+            [nacaddr.IP('4.4.2.2'), nacaddr.IP('4.4.4.4'),
+             nacaddr.IP('2001:4860:1337::8844'),
+             nacaddr.IP('2001:4860:1337::8888')]
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + MIXED_MIXED, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match MIXED_MIXED ipv4", output, output)
+        self.assertIn("source prefix 8.8.4.4/32",
+                      output, output)
+        self.assertIn("destination prefix 4.4.2.2",
+                      output, output)
 
-    #   self.naming.GetNetAddr.side_effect = [
-    #       [nacaddr.IPv4(ip) for ip in includes],
-    #       [nacaddr.IPv4(ip) for ip in excludes]]
+        self.assertIn("match MIXED_MIXED_v6 ipv6", output, output)
+        self.assertIn("source prefix 2001:4860:4860::8844/128",
+                      output, output)
+        self.assertIn("destination prefix 2001:4860:1337::8844/128",
+                      output, output)
 
-    #   atp = arista_tp.AristaTrafficPolicy(
-    #       policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_19, self.naming),
-    #       EXP_INFO)
-    #   output = str(atp)
-    #   for result in expected:
-    #     self.assertIn(result, output)
+    def testMixedAny(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')]
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + MIXED_ANY, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match MIXED_ANY ipv4", output, output)
+        self.assertIn("source prefix 8.8.4.4/32",
+                      output, output)
+
+        self.assertIn("match MIXED_ANY_v6 ipv6", output, output)
+        self.assertIn("source prefix 2001:4860:4860::8844/128",
+                      output, output)
+
+    def testAnyMixed(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8'),
+             nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')]
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + ANY_MIXED, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match ANY_MIXED ipv4", output, output)
+        self.assertIn("destination prefix 8.8.4.4/32",
+                      output, output)
+
+        self.assertIn("match ANY_MIXED_v6 ipv6", output, output)
+        self.assertIn("destination prefix 2001:4860:4860::8844/128",
+                      output, output)
+
+    def testInetInet(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('8.8.4.4'), nacaddr.IP('8.8.8.8')],
+            [nacaddr.IP('4.4.2.2'), nacaddr.IP('4.4.4.4')],
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + INET_INET, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match INET_INET ipv4", output, output)
+        self.assertIn("source prefix 8.8.4.4/32",
+                      output, output)
+        self.assertIn("destination prefix 4.4.2.2/32",
+                      output, output)
+
+    def testInet6Inet6(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP('2001:4860:4860::8844'),
+             nacaddr.IP('2001:4860:4860::8888')],
+            [nacaddr.IP('2001:4860:1337::8844'),
+             nacaddr.IP('2001:4860:1337::8888')]
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + INET6_INET6, self.naming), EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match INET6_INET6_v6 ipv6", output, output)
+        self.assertIn("source prefix 2001:4860:4860::8844/128",
+                      output, output)
+        self.assertIn("destination prefix 2001:4860:1337::8844/128",
+                      output, output)
 
     def testConfigHelper(self):
         MATCH_INDENT = ' ' * 6
@@ -1028,7 +1161,8 @@ class AristaTpTest(unittest.TestCase):
             policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_28, self.naming), EXP_INFO
         )
         st, sst = atp._BuildTokens()
-
+        # print(ppr.pprint(st))
+        # print(ppr.pprint(SUPPORTED_TOKENS))
         self.assertEqual(st, SUPPORTED_TOKENS)
         self.assertEqual(sst, SUPPORTED_SUB_TOKENS)
 
@@ -1049,7 +1183,7 @@ class AristaTpTest(unittest.TestCase):
 
     def testFailIsFragmentInV6(self):
         self.naming.GetServiceByProto.return_value = ["22"]
-        pol = policy.ParsePolicy(GOOD_HEADER_V6 + OPTION_TERM_1, self.naming)
+        pol = policy.ParsePolicy(GOOD_HEADER_INET6 + OPTION_TERM_1, self.naming)
 
         self.assertRaises(
             arista_tp.AristaTpFragmentInV6Error,
