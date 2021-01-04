@@ -232,8 +232,6 @@ class Term(aclgenerator.Term):
             if self._PLATFORM in self.term.platform_exclude:
                 return ""
 
-        print("-- term_type:", self.term_type, self.term.name)
-
         config = Config()
 
         # a LoL which will be appended to the config at the end of this method
@@ -824,18 +822,15 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
             # if the filter_type is mixed, we need to iterate through the
             # supported address families. treat the incoming policy term
-            # (pol_term) as a template fro the term and override the necessary
+            # (pol_term) as a template for the term and override the necessary
             # of the term for the inet6 evaluation.
             #
             # only make a copy of the pol_term if filter_type = "mixed"
-
             ftypes = []
             if filter_type == "mixed":
                 ftypes = ["inet", "inet6"]
             else:
                 ftypes = [filter_type]
-
-            print("ftype:", ftypes)
 
             for pol_term in terms:
                 for ft in ftypes:
@@ -858,8 +853,6 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                         )
 
                     term_names.add(term.name)
-
-                    # start checking and cleaning the term
 
                     term = self.FixHighPorts(term, af=term_type)
                     if not term:
@@ -911,20 +904,32 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                     if has_unsupported_match_criteria:
                         logging.warning(
                             "WARNING: term %s in policy %s uses an "
-                            "unsupported match criteria and will not be rendered.",
+                            "unsupported match criteria and will not "
+                            "be rendered.",
                             term.name,
                             filter_name,
                         )
                         continue
 
-                    # if (("is-fragment" in term.option or
-                    #      "fragment" in term.option) and term_type == "inet6"):
-                    #     raise AristaTpFragmentInV6Error(
-                    #         "the term %s uses is-fragment but "
-                    #         "is a v6 policy." % term.name)
+                    if (("is-fragment" in term.option or
+                         "fragment" in term.option) and filter_type == "inet6"):
+                        raise AristaTpFragmentInV6Error(
+                            "the term %s uses is-fragment but "
+                            "is a v6 policy." % term.name)
+
+                    if (("is-fragment" in term.option or
+                         "fragment" in term.option) and term_type == "inet6"):
+                        logging.warning(
+                            "WARNING: term %s in mixed policy %s uses fragment "
+                            "the ipv6 version of the term will not be rendered",
+                            term.name,
+                            filter_name,
+                        )
+                        continue
 
                     # generate the prefix sets when there are inline addres
-                    # exclusions in a term. these will be referenced within the term
+                    # exclusions in a term. these will be referenced within the
+                    # term
                     if term.source_address_exclude:
                         fs = self._GenPrefixFieldset("src",
                                                      "%s" % term.name,
@@ -942,10 +947,10 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                         policy_field_sets.append(fs)
 
                     if term.address:
-                        # if the 'address' keyword is used we will generate 2 match
-                        # terms that need to be rendered. (1) for src, (1) for dst.
-                        # if a counter is associated with this term, generate
-                        # matched counters as well.
+                        # if the 'address' keyword is used we will generate 2
+                        # match terms that need to be rendered. (1) for src, (1)
+                        # for dst. if a counter is associated with this term,
+                        # generate matched counters as well.
 
                         # src term
                         src_term = copy.deepcopy(term)
