@@ -319,6 +319,32 @@ class Term(aclgenerator.Term):
                         opt
                     )
 
+        # helper for per-address-family keywords.
+        family_keywords = self._TERM_TYPE.get(self.term_type)
+
+        # if the term name is default-* we will render this into the appropriate
+        # default term name to be used in this filter.
+        default_term = re.match(r"^default\-.*", self.term.name,
+                                re.IGNORECASE)
+        if default_term:
+            self.term.name = family_keywords["addr_fam"] + "-default-all"
+
+        term_block.append(
+            [TERM_INDENT,
+             "match %s %s" % (self.term.name, family_keywords["addr_fam"]),
+             False
+             ]
+        )
+
+        term_af = self.AF_MAP.get(self.term_type)
+        # comment - could use a little formatting love
+        if self.term.owner and not self.noverbose:
+            self.term.comment.append("owner: %s" % self.term.owner)
+        if self.term.comment and not self.noverbose:
+            for comment in self.term.comment:
+                for line in comment.split("\n"):
+                    term_block.append([MATCH_INDENT, "!! " + line, False])
+
         has_match_criteria = (
             self.term.destination_address or
             self.term.destination_address_exclude or
@@ -336,25 +362,16 @@ class Term(aclgenerator.Term):
             self.term.ttl
         )
 
-        if has_match_criteria:
-            # helper for per-address-family keywords.
-            family_keywords = self._TERM_TYPE.get(self.term_type)
-
-            term_block.append(
-                [TERM_INDENT,
-                 "match %s %s" % (self.term.name, family_keywords["addr_fam"]),
-                 False
-                 ]
+        if (not has_match_criteria and not default_term):
+            # this term doesn't match on anything and isn't a default-term
+            logging.warning(
+                "WARNING: term %s has no valid match criteria and "
+                "will not be rendered.",
+                self.term.name,
             )
-            term_af = self.AF_MAP.get(self.term_type)
-            # comment - could use a little formatting love
-            if self.term.owner and not self.noverbose:
-                self.term.comment.append("owner: %s" % self.term.owner)
-            if self.term.comment and not self.noverbose:
-                for comment in self.term.comment:
-                    for line in comment.split("\n"):
-                        term_block.append([MATCH_INDENT, "!! " + line, False])
+            return ""
 
+        else:
             # source address
             src_addr = self.term.GetAddressOfVersion("source_address", term_af)
 
@@ -551,7 +568,6 @@ class Term(aclgenerator.Term):
 
         # ACTION HANDLING
         # if there's no action, then this is an implicit permit
-
         current_action = self._ACTIONS.get(self.term.action[0])
         # non-permit/drop actions should be added here
         has_extra_actions = (
@@ -790,11 +806,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             direction + "-" + ("%s" % name) + "\n"
         )
         field_set = fieldset_hdr + (" " * 6) + field_list
-
         return field_set
-
-    def _ProcessMixedTerm(self, term):
-        pass
 
     def _TranslatePolicy(self, pol, exp_info):
         self.arista_traffic_policies = []

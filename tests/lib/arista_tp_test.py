@@ -186,8 +186,9 @@ term good-term-12 {
   action:: accept
 }
 """
-GOOD_TERM_17 = """
+GOOD_TERM_OWNER = """
 term owner-term {
+  protocol:: tcp
   owner:: foo@google.com
   action:: accept
 }
@@ -343,6 +344,7 @@ term good-term-36 {
 """
 GOOD_TERM_COMMENT = """
 term good-term-comment {
+  protocol:: udp
   comment:: "This is a COMMENT"
   action:: accept
 }
@@ -360,6 +362,11 @@ term established-term-1 {
   protocol:: tcp
   source-port:: DNS
   option:: established
+  action:: accept
+}
+"""
+MISSING_MATCH = """
+term missing-match {
   action:: accept
 }
 """
@@ -392,33 +399,6 @@ term default-term-1 {
   action:: deny
 }
 """
-ENCAPSULATE_GOOD_TERM_1 = """
-term good-term-1 {
-  protocol:: tcp
-  encapsulate:: template-name
-}
-"""
-ENCAPSULATE_GOOD_TERM_2 = """
-term good-term-2 {
-  protocol:: tcp
-  encapsulate:: template-name
-  counter:: count-name
-}
-"""
-ENCAPSULATE_BAD_TERM_1 = """
-term bad-term-1 {
-  protocol:: tcp
-  encapsulate:: template-name
-  action:: accept
-}
-"""
-ENCAPSULATE_BAD_TERM_2 = """
-term bad-term-2 {
-  protocol:: tcp
-  encapsulate:: template-name
-  routing-instance:: instance-name
-}
-"""
 LONG_COMMENT_TERM_1 = """
 term long-comment-term-1 {
   comment:: "this is very very very very very very very very very very very
@@ -444,6 +424,16 @@ term good-term-1 {
   action:: accept
 }
 """
+
+COUNTER_CLEANUP_TERM = """
+term good-term-1 {
+  protocol:: tcp
+  counter:: test.cleanup.check
+  action:: accept
+}
+"""
+
+# test the various mixed filter_type permutations
 MIXED_INET = """
 term MIXED_INET {
   source-address:: GOOGLE_DNS
@@ -451,86 +441,86 @@ term MIXED_INET {
   protocol:: tcp udp
   action:: accept
 }
-  """
+"""
 
 INET_MIXED = """
-  term INET_MIXED {
-    source-address:: INTERNAL
-    destination-address:: GOOGLE_DNS
-    protocol:: tcp udp
-    action:: accept
-  }
-  """
+term INET_MIXED {
+  source-address:: INTERNAL
+  destination-address:: GOOGLE_DNS
+  protocol:: tcp udp
+  action:: accept
+}
+"""
 
 MIXED_INET6 = """
-  term MIXED_INET6 {
-    source-address:: GOOGLE_DNS
-    destination-address:: SOME_HOST
-    action:: accept
-  }
-  """
+term MIXED_INET6 {
+  source-address:: GOOGLE_DNS
+  destination-address:: SOME_HOST
+  action:: accept
+}
+"""
 
 INET6_MIXED = """
-  term INET6_MIXED {
-    source-address:: SOME_HOST
-    destination-address:: GOOGLE_DNS
-    action:: accept
-  }
-  """
+term INET6_MIXED {
+  source-address:: SOME_HOST
+  destination-address:: GOOGLE_DNS
+  action:: accept
+}
+"""
 
 MIXED_MIXED = """
-  term MIXED_MIXED {
-    source-address:: GOOGLE_DNS
-    destination-address:: GOOGLE_DNS
-    action:: accept
-  }
-  """
+term MIXED_MIXED {
+  source-address:: GOOGLE_DNS
+  destination-address:: GOOGLE_DNS
+  action:: accept
+}
+"""
 
 MIXED_ANY = """
-  term MIXED_ANY {
-    source-address:: GOOGLE_DNS
-    action:: accept
-  }
-  """
+term MIXED_ANY {
+  source-address:: GOOGLE_DNS
+  action:: accept
+}
+"""
 
 ANY_MIXED = """
-  term ANY_MIXED {
-    destination-address:: GOOGLE_DNS
-    action:: accept
-  }
-  """
+term ANY_MIXED {
+  destination-address:: GOOGLE_DNS
+  action:: accept
+}
+"""
 
 INET_INET = """
-  term INET_INET {
-    source-address:: NTP_SERVERS
-    destination-address:: INTERNAL
-    action:: accept
-  }
-  """
+term INET_INET {
+  source-address:: NTP_SERVERS
+  destination-address:: INTERNAL
+  action:: accept
+}
+"""
 
 INET6_INET6 = """
-  term INET6_INET6 {
-    source-address:: SOME_HOST
-    destination-address:: SOME_HOST
-    action:: accept
-  }
-  """
+term INET6_INET6 {
+  source-address:: SOME_HOST
+  destination-address:: SOME_HOST
+  action:: accept
+}
+"""
 
 INET_INET6 = """
-  term INET_INET6 {
-    source-address:: INTERNAL
-    destination-address:: SOME_HOST
-    action:: accept
-  }
-  """
+term INET_INET6 {
+  source-address:: INTERNAL
+  destination-address:: SOME_HOST
+  action:: accept
+}
+"""
 
 INET6_INET = """
-  term INET6_INET {
-    source-address:: SOME_HOST
-    destination-address:: INTERNAL
-    action:: accept
-  }
-  """
+term INET6_INET {
+  source-address:: SOME_HOST
+  destination-address:: INTERNAL
+  action:: accept
+}
+"""
 
 SUPPORTED_TOKENS = frozenset(
     [
@@ -675,32 +665,41 @@ class AristaTpTest(unittest.TestCase):
             pol,
             EXP_INFO,
         )
-
         self.naming.GetNetAddr.assert_called_once_with("SOME_HOST")
         self.naming.GetServiceByProto.assert_called_once_with("SMTP", "tcp")
 
-        # def testDefaultDeny(self):
-        #   atp = arista_tp.AristaTrafficPolicy(
-        #       policy.ParsePolicy(GOOD_HEADER + DEFAULT_TERM_1, self.naming),
-        #       EXP_INFO
-        #   )
-        #   output = str(atp)
-        #   self.assertNotIn('from {', output, output)
+    def testCounterCleanup(self):
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + COUNTER_CLEANUP_TERM, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("counters test-cleanup-check", output, output)
+        self.assertIn("counter test-cleanup-check", output, output)
 
-        def testIcmpType(self):
-            atp = arista_tp.AristaTrafficPolicy(
-                policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_3, self.naming),
-                EXP_INFO
-            )
-            output = str(atp)
-            # verify proper translation from policy icmp-type text to
-            # traffic-policy
-            self.assertIn("icmp type ", output, output)
-            self.assertIn("0,", output, output)
-            self.assertIn("15,", output, output)
-            self.assertIn("10,", output, output)
-            self.assertIn("13,", output, output)
-            self.assertIn("16,", output, output)
+    def testDefaultDeny(self):
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + DEFAULT_TERM_1, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("match ipv4-default-all ipv4", output, output)
+        self.assertIn("match ipv6-default-all ipv6", output, output)
+
+    def testIcmpType(self):
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_3, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        # verify proper translation from policy icmp-type text to
+        # traffic-policy
+        self.assertIn("icmp type ", output, output)
+        self.assertIn("0,", output, output)
+        self.assertIn("10,", output, output)
+        self.assertIn("13,", output, output)
+        self.assertIn("15,", output, output)
+        self.assertIn("16", output, output)
 
     def testIcmpCode(self):
         atp = arista_tp.AristaTrafficPolicy(
@@ -772,28 +771,6 @@ class AristaTpTest(unittest.TestCase):
         output = str(atp)
         self.assertTrue(spfx_re.search(output), output)
         self.assertTrue(dpfx_re.search(output), output)
-
-    # TODO(sulrich): do we need to support this?
-    # def testPrefixListExcept(self):
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_30,
-    #                                            self.naming), EXP_INFO)
-    #   spfx_re = re.compile(r'source address\W+except\W+foo_prefix_list except\W+')
-    #   dpfx_re = re.compile(
-    #       r'destination address\W+except\W+bar_prefix_list\W+')
-    #   output = str(atp)
-    #   self.assertTrue(spfx_re.search(output), output)
-    #   self.assertTrue(dpfx_re.search(output), output)
-
-    # def testPrefixListMixed(self):
-    #   atp = arista_tp.AristaTrafficPolicy(policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_31,
-    #                                            self.naming), EXP_INFO)
-    #   spfx_re = re.compile(r'source-prefix-list {\W+foo_prefix;\W+'
-    #                        r'foo_except except;\W+}')
-    #   dpfx_re = re.compile(r'destination-prefix-list {\W+bar_prefix;\W+'
-    #                        r'bar_except except;\W+}')
-    #   output = str(atp)
-    #   self.assertTrue(spfx_re.search(output), output)
-    #   self.assertTrue(dpfx_re.search(output), output)
 
     def testVerbatimTerm(self):
         atp = arista_tp.AristaTrafficPolicy(
@@ -996,11 +973,26 @@ class AristaTpTest(unittest.TestCase):
 
     def testOwnerTerm(self):
         atp = arista_tp.AristaTrafficPolicy(
-            policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_17, self.naming),
+            policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_OWNER, self.naming),
             EXP_INFO
         )
         output = str(atp)
         self.assertIn("!! owner: foo@google.com", output, output)
+
+    # confirm that we don't generate a term for non-default
+    @mock.patch.object(arista_tp.logging, "warning")
+    def testMissingMatchCriteria(self, mock_warn):
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + MISSING_MATCH, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        self.assertNotIn("match", output, output)
+        mock_warn.has_calls(
+            "WARNING: term %s has no valid match criteria and "
+            "will not be rendered",
+            "missing-match",
+        )
 
     # def testAddressExclude(self):
     #   big = nacaddr.IPv4('0.0.0.0/1')
