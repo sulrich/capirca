@@ -67,8 +67,8 @@ class Error(Exception):
     pass
 
 
-class AristaTpTermPortProtocolError(Error):
-    pass
+# class AristaTpTermPortProtocolError(Error):
+#     pass
 
 
 class TcpEstablishedWithNonTcpError(Error):
@@ -76,26 +76,6 @@ class TcpEstablishedWithNonTcpError(Error):
 
 
 class AristaTpDuplicateTermError(Error):
-    pass
-
-
-class UnsupportedFilterError(Error):
-    pass
-
-
-class PrecedenceError(Error):
-    pass
-
-
-class AristaTpIndentationError(Error):
-    pass
-
-
-class AristaTpNextIpError(Error):
-    pass
-
-
-class AristaTpMultipleTerminatingActionError(Error):
     pass
 
 
@@ -755,15 +735,15 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
         field_list = ""
 
         for p in pfxs:
-            field_list += " %s" % p
+            field_list += (" " * 6) + "%s\n" % p
         for p in ex_pfxs:
-            field_list += " except %s" % p
+            field_list += (" " * 6) + "except %s\n" % p
 
         fieldset_hdr = (
             "field-set " + af + " prefix " +
             direction + "-" + ("%s" % name) + "\n"
         )
-        field_set = fieldset_hdr + (" " * 6) + field_list
+        field_set = fieldset_hdr + field_list
         return field_set
 
     def _TranslatePolicy(self, pol, exp_info):
@@ -892,6 +872,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                             "the term %s uses is-fragment but "
                             "is a v6 policy." % term.name)
 
+                    # this should error out more gracefully in mixed configs
                     if (("is-fragment" in term.option or
                          "fragment" in term.option) and term_type == "inet6"):
                         logging.warning(
@@ -899,6 +880,19 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                             "the ipv6 version of the term will not be rendered",
                             term.name,
                             filter_name,
+                        )
+                        continue
+
+                    # check for traffic-policy specific feature interactions
+                    if (("is-fragment" in term.option or
+                            "fragment" in term.option) and
+                            (term.source_port or term.destination_port)):
+                        logging.warning(
+                            "WARNING: term %s uses fragment as well as src/dst "
+                            "port matches.  traffic-policies currently do not "
+                            "support this match combination. the term will not "
+                            "be rendered",
+                            term.name,
                         )
                         continue
 
@@ -928,7 +922,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                                                      "%s" % term.name,
                                                      term.destination_address,
                                                      term.destination_address_exclude,
-                                                     _af_MAP_TXT[term_type])
+                                                     _AF_MAP_TXT[term_type])
                         policy_field_sets.append(fs)
 
                     if term.address:
@@ -1002,13 +996,13 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                 for fs in field_sets:
                     config.Append("   ", fs)
 
+            config.Append("   ", "no traffic-policy %s" % filter_name)
+            config.Append("   ", "traffic-policy %s" % filter_name)
+
             # if there are counters, export the list of counters
             if len(counters) > 0:
                 str_counters = " ".join(counters)
-                config.Append("   ", "counters %s" % str_counters)
-
-            config.Append("   ", "no traffic-policy %s" % filter_name)
-            config.Append("   ", "traffic-policy %s" % filter_name)
+                config.Append("   ", "counter %s" % str_counters)
 
             for term in terms:
                 term_str = str(term)
