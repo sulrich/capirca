@@ -157,7 +157,7 @@ class Term(aclgenerator.Term):
         "deny": "drop",
         "reject": "drop",               # unsupported action, convert to drop
         "reject-with-tcp-rst": "drop",  # ibid
-        "next": "continue",
+        # "next": "continue",
     }
     AF_MAP = {
         "inet": 4,
@@ -276,48 +276,12 @@ class Term(aclgenerator.Term):
 
             return str(config)
 
+        # option processing
         flags = []
         misc_options = []
-        # option processing
         if self.term.option:
-            for opt in [str(x) for x in self.term.option]:
-                # note: traffic policies support additional tcp flags. for now,
-                # only handle the required elements
-                #
-                # only append tcp-established for option established when
-                # tcp is the only protocol
-                if opt.startswith("established"):
-                    if self.term.protocol == ["tcp"]:
-                        if "established" not in flags:
-                            flags.append("established")
-                # if tcp-established specified, but more than just tcp is
-                # included in the protocols, raise an error
-                elif opt.startswith("tcp-established"):
-                    if (self.term.protocol == ["tcp"] and "established" not in flags):
-                        flags.append("established")
-                    if (len(self.term.protocol) > 1 or self.term.protocol != ["tcp"]):
-                        raise TcpEstablishedWithNonTcpError(
-                            "tcp-established can only be used with tcp "
-                            "protocol in term %s"
-                            % self.term.name
-                        )
-                elif (opt.startswith("initial") and
-                      self.term.protocol == ["tcp"]):
-                    flags.append("initial")
-                elif opt.startswith("rst") and self.term.protocol == ["tcp"]:
-                    flags.append("rst")
-                elif "fragment" in opt:
-                    # handles the is-fragment and first-fragment options
-                    misc_options.append("fragment")
-
-                # we don't have a special way of dealing with this, so we output
-                # it and hope the user knows what they're doing.
-                else:
-                    logging.info(
-                        "INFO: term %s uses an unsupported option (%s)",
-                        self.term.name,
-                        opt
-                    )
+            flags, misc_options = self._processTermOptions(self.term,
+                                                           self.term.option)
 
         # helper for per-address-family keywords.
         family_keywords = self._TERM_TYPE.get(self.term_type)
@@ -595,28 +559,6 @@ class Term(aclgenerator.Term):
                 term_block.append([ACTION_INDENT,
                                    "counter %s" % self.term.counter, False])
 
-            if self.term.next_ip:
-                self.NextIpCheck(self.term.next_ip, self.term.name)
-                if self.term.next_ip[0].version == 4:
-                    term_block.append([
-                        ACTION_INDENT,
-                        "next-ip %s;" % str(self.term.next_ip[0]),
-                        False
-                    ])
-                else:
-                    term_block.append([
-                        ACTION_INDENT,
-                        "next-ip6 %s;" % str(self.term.next_ip[0]), False
-                    ])
-
-            # DSCP SET
-            if self.term.dscp_set:
-                term_block.append([
-                    ACTION_INDENT, "set dscp %s" % self.term.dscp_set, False
-                ])
-
-            # set traffic class
-
             term_block.append([MATCH_INDENT, "!", False])  # end of actions
         term_block.append([TERM_INDENT, "!", False])  # end of match entry
 
@@ -625,23 +567,41 @@ class Term(aclgenerator.Term):
 
         return str(config)
 
-    def _Range(self, field_range, field_type="port"):
-        """generate a valid range for EOS traffic-policies"""
+    def _processTermOptions(self, term, options):
+        flags = []
+        misc_options = []
 
-        pass
+        for opt in [str(x) for x in options]:
+            # note: traffic policies support additional tcp flags. for now,
+            # only handle the required elements
+            #
+            # only append tcp-established for option established when
+            # tcp is the only protocol
+            if opt.startswith("established"):
+                if self.term.protocol == ["tcp"]:
+                    if "established" not in flags:
+                        flags.append("established")
+            # if tcp-established specified, but more than just tcp is
+            # included in the protocols, raise an error
+            elif opt.startswith("tcp-established"):
+                if (self.term.protocol == ["tcp"] and "established" not in flags):
+                    flags.append("established")
+                if (len(self.term.protocol) > 1 or self.term.protocol != ["tcp"]):
+                    raise TcpEstablishedWithNonTcpError(
+                        "tcp-established can only be used with tcp "
+                        "protocol in term %s"
+                        % self.term.name
+                    )
+            elif (opt.startswith("initial") and
+                  self.term.protocol == ["tcp"]):
+                flags.append("initial")
+            elif opt.startswith("rst") and self.term.protocol == ["tcp"]:
+                flags.append("rst")
+            elif "fragment" in opt:
+                # handles the is-fragment and first-fragment options
+                misc_options.append("fragment")
 
-    @staticmethod
-    def NextIpCheck(next_ip, term_name):
-        if len(next_ip) > 1:
-            raise AristaTpNextIpError(
-                "the following term has more "
-                "than one next IP value: %s" % term_name
-            )
-        if next_ip[0].num_addresses > 1:
-            raise AristaTpNextIpError(
-                "the following term has a subnet "
-                "instead of a host: %s" % term_name
-            )
+        return flags, misc_options
 
     def _MinimizePrefixes(self, include, exclude):
         """Calculate a minimal set of prefixes for match conditions.
@@ -730,10 +690,8 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
     Attributes:
       pol: policy.Policy object
-
     """
-
-    _AF_MAP = {"inet": 4, "inet6": 6, "mixed": None}
+    _AF_MAP = {"inet": 4, "inet6": 6}
     _DEFAULT_PROTOCOL = "ip"
     _PLATFORM = "arista_tp"
     _SUPPORTED_AF = set(("inet", "inet6", "mixed"))
@@ -810,6 +768,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
     def _TranslatePolicy(self, pol, exp_info):
         self.arista_traffic_policies = []
+        _AF_MAP_TXT = {"inet": "ipv4", "inet6": "ipv6"}
 
         current_date = datetime.datetime.utcnow().date()
         exp_info_date = current_date + datetime.timedelta(weeks=exp_info)
@@ -863,7 +822,6 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                         raise AristaTpDuplicateTermError(
                             "multiple terms named: %s" % term.name
                         )
-
                     term_names.add(term.name)
 
                     term = self.FixHighPorts(term, af=term_type)
@@ -889,18 +847,23 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
                     # emit warnings for unsupported options / terms
                     if term.option:
+                        unsupported_opts = []
                         for opt in [str(x) for x in term.option]:
                             if opt.startswith("sample") or \
                                opt.startswith("first-fragment"):
-                                logging.warning(
-                                    "WARNING: term %s in policy %s uses an "
-                                    "unsupported option (%s) and will not be "
-                                    "rendered.",
-                                    term.name,
-                                    filter_name,
-                                    opt,
-                                )
-                                continue
+                                unsupported_opts.append(opt)
+
+                        # unsupported options are in use and should be skipped
+                        if len(unsupported_opts) > 0:
+                            logging.warning(
+                                "WARNING: term %s in policy %s uses an "
+                                "unsupported option (%s) and will not be "
+                                "rendered.",
+                                term.name,
+                                filter_name,
+                                " ".join(unsupported_opts),
+                            )
+                            continue
 
                     has_unsupported_match_criteria = (
                         term.dscp_except or
@@ -939,6 +902,16 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                         )
                         continue
 
+                    # check for common unsupported actions (e.g.: next)
+                    if term.action == ["next"]:
+                        logging.warning(
+                            "WARNING: term %s uses an unsupported action "
+                            "(%s) and will not be rendered",
+                            term.name,
+                            " ".join(term.action),
+                        )
+                        continue
+
                     # generate the prefix sets when there are inline addres
                     # exclusions in a term. these will be referenced within the
                     # term
@@ -947,7 +920,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                                                      "%s" % term.name,
                                                      term.source_address,
                                                      term.source_address_exclude,
-                                                     term_type)
+                                                     _AF_MAP_TXT[term_type])
                         policy_field_sets.append(fs)
 
                     if term.destination_address_exclude:
@@ -955,7 +928,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                                                      "%s" % term.name,
                                                      term.destination_address,
                                                      term.destination_address_exclude,
-                                                     term_type)
+                                                     _af_MAP_TXT[term_type])
                         policy_field_sets.append(fs)
 
                     if term.address:
