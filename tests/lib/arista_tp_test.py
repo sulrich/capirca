@@ -72,14 +72,8 @@ header {
   target:: arista_tp test-filter inet6 noverbose
 }
 """
-BAD_HEADER = """
-header {
-  comment:: "this is a test acl"
-  target:: cisco test-filter
-}
-"""
 
-BAD_HEADER_2 = """
+BAD_HEADER = """
 header {
   target:: arista_tp test-filter inetfoo
 }
@@ -97,6 +91,20 @@ term is_expiring {
   action:: accept
 }
 """
+DUPLICATE_TERMS = """
+term good-term-1 {
+  protocol:: icmp
+  action:: accept
+}
+
+term good-term-1 {
+  protocol:: tcp
+  destination-port:: SMTP
+  destination-address:: SOME_HOST
+  action:: accept
+}
+"""
+
 GOOD_TERM_1 = """
 term good-term-1 {
   protocol:: icmp
@@ -373,7 +381,6 @@ term missing-match {
 OPTION_TERM_1 = """
 term option-term {
   protocol:: tcp
-  source-port:: SSH
   option:: is-fragment
   action:: accept
 }
@@ -658,9 +665,23 @@ class AristaTpTest(unittest.TestCase):
         self.naming.GetNetAddr.return_value = [nacaddr.IP("10.0.0.0/8")]
         self.naming.GetServiceByProto.return_value = ["25"]
 
-        pol = policy.ParsePolicy(BAD_HEADER_2 + GOOD_TERM_1, self.naming)
+        pol = policy.ParsePolicy(BAD_HEADER + GOOD_TERM_1, self.naming)
         self.assertRaises(
             aclgenerator.UnsupportedAFError,
+            arista_tp.AristaTrafficPolicy,
+            pol,
+            EXP_INFO,
+        )
+        self.naming.GetNetAddr.assert_called_once_with("SOME_HOST")
+        self.naming.GetServiceByProto.assert_called_once_with("SMTP", "tcp")
+
+    def testDuplicateTermName(self):
+        self.naming.GetNetAddr.return_value = [nacaddr.IP("10.0.0.0/8")]
+        self.naming.GetServiceByProto.return_value = ["25"]
+
+        pol = policy.ParsePolicy(GOOD_HEADER + DUPLICATE_TERMS, self.naming)
+        self.assertRaises(
+            arista_tp.AristaTpDuplicateTermError,
             arista_tp.AristaTrafficPolicy,
             pol,
             EXP_INFO,
@@ -674,7 +695,6 @@ class AristaTpTest(unittest.TestCase):
             EXP_INFO
         )
         output = str(atp)
-        self.assertIn("counters test-cleanup-check", output, output)
         self.assertIn("counter test-cleanup-check", output, output)
 
     def testDefaultDeny(self):
@@ -855,8 +875,6 @@ class AristaTpTest(unittest.TestCase):
 
     @mock.patch.object(arista_tp.logging, "warning")
     def testArbitraryOptions(self, mock_warn):
-        self.naming.GetServiceByProto.return_value = ["22"]
-
         atp = arista_tp.AristaTrafficPolicy(
             policy.ParsePolicy(GOOD_HEADER + OPTION_TERM_1, self.naming),
             EXP_INFO
@@ -871,7 +889,6 @@ class AristaTpTest(unittest.TestCase):
             "option-term_v6",
             "test-filter"
         )
-        self.naming.GetServiceByProto.assert_called_once_with("SSH", "tcp")
 
     @mock.patch.object(arista_tp.logging, "debug")
     def testIcmpv6InetMismatch(self, mock_debug):
