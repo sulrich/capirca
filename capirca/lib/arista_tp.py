@@ -400,20 +400,7 @@ class Term(aclgenerator.Term):
             # PROTOCOL MATCHES
             protocol_str = ""
             if self.term.protocol:
-                if len(self.term.protocol) > 1:
-                    protocol_str += (
-                        family_keywords["protocol"] + " %s" %
-                        self._Group(self.term.protocol)
-                    )
-                else:
-                    protocol_str += (
-                        family_keywords["protocol"] +
-                        " %s" % self.term.protocol[0]
-                    )
-
-                if self.term.protocol == ["tcp"]:
-                    if len(flags) > 0:
-                        protocol_str += " flags " + " ".join(flags)
+                protocol_str = self._processProtocol(self.term, flags)
 
             # protocol-except handling
             if self.term.protocol_except:
@@ -426,58 +413,27 @@ class Term(aclgenerator.Term):
                     ])
 
             # tcp/udp port generation
-            port_str = ""
-            sport = ""
-            dport = ""
-            # TODO(sulrich): fix port range generation
-            # source port
-            if self.term.source_port:
-                sport += " source port %s" % self._Group(self.term.source_port)
-                port_str += sport
-
-            # destination port
-            if self.term.destination_port:
-                dport += (" destination port %s"
-                          % self._Group(self.term.destination_port))
-                port_str += dport
-
+            port_str = self._processPorts(self.term)
             if port_str != "":
                 protocol_str += port_str
 
             # icmp[v6] handling
-            if (self.term.protocol == ["icmp"] or self.term.protocol == ["icmpv6"]):
-                icmp_types = [""]
-                icmp_type_str = " type "
-                icmp_code_str = ""
+            icmp_type_str = ""
+            icmp_code_str = ""
+            if self.term.protocol == ["icmp"] or \
+               self.term.protocol == ["icmpv6"]:
+                icmp_type_str, icmp_code_str = self._processICMP(self.term)
 
-                if self.term.icmp_type:
-                    icmp_types = self.NormalizeIcmpTypes(
-                        self.term.icmp_type, self.term.protocol, self.term_type
-                    )
-                if icmp_types != [""]:
-                    for t in icmp_types:
-                        icmp_type_str += "%s," % t
-
-                    if icmp_type_str.endswith(","):
-                        icmp_type_str = icmp_type_str[:-1]  # chomp trailing ','
-                        if not self.term.icmp_code:
-                            icmp_type_str += " code all"
-
-                if self.term.icmp_code and len(icmp_types) <= 1:
-                    # TODO(sulrich): fix icmp_code handling
-                    icmp_codes = self._Group(self.term.icmp_code)
-                    icmp_codes = re.sub(r" ", ",", icmp_codes)
-                    icmp_code_str += " code %s" % icmp_codes
-
-                if self.term.icmp_type:
-                    protocol_str += icmp_type_str
-                if self.term.icmp_code:
-                    protocol_str += icmp_code_str
+            if self.term.icmp_type:
+                protocol_str += icmp_type_str
+            if self.term.icmp_code:
+                protocol_str += icmp_code_str
 
             # don't render emppty protocol strings.
             if protocol_str != "":
                 term_block.append([MATCH_INDENT, protocol_str, False])
 
+            # ADDITIONAL SUPPORTED MATCH OPTIONS
             # packet length
             if self.term.packet_length:
                 term_block.append([MATCH_INDENT,
@@ -546,6 +502,64 @@ class Term(aclgenerator.Term):
             config.Append(tindent, tstr, verbatim=tverb)
 
         return str(config)
+
+    def _processPorts(self, term):
+        port_str = ""
+        sport = ""
+        dport = ""
+
+        # source port generation
+        if term.source_port:
+            sport += " source port %s" % self._Group(term.source_port)
+            port_str += sport
+
+        # destination port
+        if term.destination_port:
+            dport += (" destination port %s"
+                      % self._Group(term.destination_port))
+            port_str += dport
+
+        return port_str
+
+    def _processICMP(self, term):
+        icmp_types = [""]
+        icmp_code_str = ""
+        icmp_type_str = " type "
+
+        if term.icmp_type:
+            icmp_types = self.NormalizeIcmpTypes(
+                term.icmp_type, term.protocol, self.term_type
+            )
+        if icmp_types != [""]:
+            for t in icmp_types:
+                icmp_type_str += "%s," % t
+
+            if icmp_type_str.endswith(","):
+                icmp_type_str = icmp_type_str[:-1]  # chomp trailing ','
+                if not term.icmp_code:
+                    icmp_type_str += " code all"
+
+        if self.term.icmp_code and len(icmp_types) <= 1:
+            # TODO(sulrich): fix icmp_code handling
+            icmp_codes = self._Group(self.term.icmp_code)
+            icmp_codes = re.sub(r" ", ",", icmp_codes)
+            icmp_code_str += " code %s" % icmp_codes
+
+        return icmp_type_str, icmp_code_str
+
+    def _processProtocol(self, term, flags):
+        protocol_str = ""
+
+        if len(self.term.protocol) > 1:
+            protocol_str += "protocol %s" % self._Group(self.term.protocol)
+        else:
+            protocol_str += "protocol %s" % self.term.protocol[0]
+
+        if self.term.protocol == ["tcp"]:
+            if len(flags) > 0:
+                protocol_str += " flags " + " ".join(flags)
+
+        return protocol_str
 
     def _processTermOptions(self, term, options):
         flags = []

@@ -42,20 +42,19 @@ header {
   target:: arista_tp test-filter
 }
 """
+# XXX check
 GOOD_HEADER_INET = """
 header {
   comment:: "test inet acl"
   target:: arista_tp test-filter inet
 }
 """
-
 GOOD_HEADER_INET6 = """
 header {
   comment:: "this is a test acl"
   target:: arista_tp test-filter inet6
 }
 """
-
 GOOD_NOVERBOSE_MIXED_HEADER = """
 header {
   target:: arista_tp test-filter noverbose
@@ -66,7 +65,6 @@ header {
   target:: arista_tp test-filter inet noverbose
 }
 """
-
 GOOD_NOVERBOSE_V6_HEADER = """
 header {
   target:: arista_tp test-filter inet6 noverbose
@@ -78,7 +76,6 @@ header {
   target:: arista_tp test-filter inetfoo
 }
 """
-
 EXPIRED_TERM = """
 term is_expired {
   expiration:: 2001-01-01
@@ -104,13 +101,11 @@ term good-term-1 {
   action:: accept
 }
 """
-
 GOOD_TERM_1 = """
 term good-term-1 {
   protocol:: icmp
   action:: accept
 }
-
 term good-term-2 {
   protocol:: tcp
   destination-port:: SMTP
@@ -123,7 +118,6 @@ term good-term-1 {
   protocol:: icmpv6
   action:: accept
 }
-
 term good-term-2 {
   protocol:: tcp
   destination-port:: SMTP
@@ -169,29 +163,11 @@ term good-term-8 {
   action:: accept
 }
 """
-GOOD_TERM_9 = """
-term good-term-9 {
-  ether-type:: arp
-  action:: accept
-}
-"""
-GOOD_TERM_10 = """
-term good-term-10 {
-  traffic-type:: unknown-unicast
-  action:: accept
-}
-"""
 GOOD_TERM_11 = """
 term good-term-11 {
   verbatim:: arista_tp "mary had a little lamb"
   verbatim:: iptables "mary had a second lamb"
   verbatim:: cisco "mary had a third lamb"
-}
-"""
-GOOD_TERM_12 = """
-term good-term-12 {
-  source-address:: LOCALHOST
-  action:: accept
 }
 """
 GOOD_TERM_OWNER = """
@@ -215,6 +191,7 @@ term address-exclusions {
   action:: accept
 }
 """
+# TODO(sulric): write a test for this term
 GOOD_TERM_19 = """
 term minimize-prefix-list {
   source-address:: INCLUDES
@@ -240,97 +217,9 @@ term good_term_21 {
   action:: accept
 }
 """
-GOOD_TERM_22 = """
-term good_term_22 {
-  protocol:: tcp
-  source-port:: DNS
-  dscp-set:: b111000
-  action:: accept
-}
-"""
-GOOD_TERM_23 = """
-term good_term_23 {
-  protocol:: tcp
-  source-port:: DNS
-  dscp-set:: af42
-  dscp-match:: af41-af42 5
-  dscp-except:: be
-  action:: accept
-}
-"""
-GOOD_TERM_24 = """
-term good_term_24 {
-  protocol:: tcp
-  source-port:: DNS
-  qos:: af1
-  action:: accept
-}
-"""
-GOOD_TERM_25 = """
-term good_term_25 {
-  protocol:: tcp
-  source-port:: DNS
-  action:: accept
-}
-"""
-GOOD_TERM_26 = """
-term good_term_26 {
-  protocol:: tcp
-  source-port:: DNS
-  action:: deny
-}
-"""
-GOOD_TERM_26_V6 = """
-term good_term_26-v6 {
-  protocol:: tcp
-  source-port:: DNS
-  action:: deny
-}
-"""
-GOOD_TERM_26_V6_REJECT = """
-term good_term_26-v6 {
-  protocol:: tcp
-  source-port:: DNS
-  action:: reject
-}
-"""
-GOOD_TERM_27 = """
-term good_term_27 {
-  forwarding-class:: Floop
-  action:: deny
-}
-"""
 GOOD_TERM_28 = """
 term good_term_28 {
   action:: accept
-}
-"""
-GOOD_TERM_30 = """
-term good-term-30 {
-  source-prefix-except:: foo_prefix_list
-  destination-prefix-except:: bar_prefix_list
-  action:: accept
-}
-"""
-GOOD_TERM_31 = """
-term good-term-31 {
-  source-prefix:: foo_prefix
-  source-prefix-except:: foo_except
-  destination-prefix:: bar_prefix
-  destination-prefix-except:: bar_except
-  action:: accept
-}
-"""
-GOOD_TERM_32 = """
-term good_term_32 {
-  forwarding-class-except:: floop
-  action:: deny
-}
-"""
-GOOD_TERM_34 = """
-term good_term_34 {
-  traffic-class-count:: floop
-  action:: deny
 }
 """
 GOOD_TERM_35 = """
@@ -338,15 +227,6 @@ term good_term_35 {
   protocol:: icmp
   icmp-type:: unreachable
   icmp-code:: 3 4
-  action:: accept
-}
-"""
-GOOD_TERM_36 = """
-term good-term-36 {
-  protocol:: tcp
-  destination-address:: SOME_HOST
-  destination-address:: SOME_HOST
-  option:: inactive
   action:: accept
 }
 """
@@ -431,7 +311,6 @@ term good-term-1 {
   action:: accept
 }
 """
-
 COUNTER_CLEANUP_TERM = """
 term good-term-1 {
   protocol:: tcp
@@ -439,7 +318,6 @@ term good-term-1 {
   action:: accept
 }
 """
-
 # test the various mixed filter_type permutations
 MIXED_INET = """
 term MIXED_INET {
@@ -899,8 +777,8 @@ class AristaTpTest(unittest.TestCase):
         str(atp)
 
         mock_debug.assert_called_once_with(
-            "Term icmptype-mismatch will not be rendered,"
-            " as it has icmpv6 match specified but "
+            "Term icmptype-mismatch will not be rendered, "
+            "as it has icmpv6 match specified but "
             "the ACL is of inet address family."
         )
 
@@ -914,8 +792,8 @@ class AristaTpTest(unittest.TestCase):
         str(atp)
 
         mock_debug.assert_called_once_with(
-            "Term icmptype-mismatch will not be rendered,"
-            " as it has icmp match specified but "
+            "Term icmptype-mismatch will not be rendered, "
+            "as it has icmp match specified but "
             "the ACL is of inet6 address family."
         )
 
@@ -930,8 +808,8 @@ class AristaTpTest(unittest.TestCase):
         str(atp)
 
         mock_debug.assert_called_once_with(
-            "Term icmptype-mismatch will not be rendered,"
-            " as it has icmpv6 match specified but "
+            "Term icmptype-mismatch will not be rendered, "
+            "as it has icmpv6 match specified but "
             "the ACL is of inet address family."
         )
 
@@ -945,8 +823,8 @@ class AristaTpTest(unittest.TestCase):
         str(atp)
 
         mock_debug.assert_called_once_with(
-            "Term icmptype-mismatch_v6 will not be rendered,"
-            " as it has icmp match specified but "
+            "Term icmptype-mismatch_v6 will not be rendered, "
+            "as it has icmp match specified but "
             "the ACL is of inet6 address family."
         )
 
@@ -1185,7 +1063,8 @@ class AristaTpTest(unittest.TestCase):
              nacaddr.IP("2001:4860:1337::8888")]
         ]
         atp = arista_tp.AristaTrafficPolicy(
-            policy.ParsePolicy(GOOD_HEADER + INET6_INET6, self.naming), EXP_INFO
+            policy.ParsePolicy(GOOD_HEADER + INET6_INET6, self.naming),
+            EXP_INFO
         )
         output = str(atp)
         self.assertIn("match INET6_INET6_v6 ipv6", output, output)
@@ -1193,6 +1072,38 @@ class AristaTpTest(unittest.TestCase):
                       output, output)
         self.assertIn("destination prefix 2001:4860:1337::8844/128",
                       output, output)
+
+    def testInetInet6(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP("8.8.4.4"), nacaddr.IP("8.8.8.8")],
+            [nacaddr.IP("2001:4860:4860::8844"),
+             nacaddr.IP("2001:4860:4860::8888")],
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + INET_INET6, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        # we should not generate this term
+        # TODO(sulrich): we should, however, throw a warning
+        self.assertNotIn("match INET_INET6 ipv4", output, output)
+        self.assertNotIn("match INET_INET6_v6 ipv6", output, output)
+
+    def testInet6Inet(self):
+        self.naming.GetNetAddr.side_effect = [
+            [nacaddr.IP("2001:4860:4860::8844"),
+             nacaddr.IP("2001:4860:4860::8888")],
+            [nacaddr.IP("8.8.4.4"), nacaddr.IP("8.8.8.8")],
+        ]
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + INET6_INET, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        # we should not generate this term
+        # TODO(sulrich): we should, however, throw a warning
+        self.assertNotIn("match INET6_INET ipv4", output, output)
+        self.assertNotIn("match INET6_INET_v6 ipv6", output, output)
 
     def testConfigHelper(self):
         MATCH_INDENT = " " * 6
@@ -1210,9 +1121,9 @@ class AristaTpTest(unittest.TestCase):
                                   "Mr. T Pities the fool!")
 
     def testFragmentOffset(self):
-        policy_text = GOOD_HEADER + FRAGOFFSET_TERM
         atp = arista_tp.AristaTrafficPolicy(
-            policy.ParsePolicy(policy_text, self.naming), EXP_INFO
+            policy.ParsePolicy(GOOD_HEADER + FRAGOFFSET_TERM, self.naming),
+            EXP_INFO
         )
         output = str(atp)
         self.assertIn("fragment offset 1-7", output, output)
