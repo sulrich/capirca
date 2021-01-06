@@ -67,10 +67,6 @@ class Error(Exception):
     pass
 
 
-# class AristaTpTermPortProtocolError(Error):
-#     pass
-
-
 class TcpEstablishedWithNonTcpError(Error):
     pass
 
@@ -152,7 +148,6 @@ class Term(aclgenerator.Term):
     # it's critical that the members of each filter type be the same, that is
     # to say that if _TERM_TYPE.get('inet').get('foo') returns something,
     # _TERM_TYPE.get('inet6').get('foo') must return the inet6 equivalent.
-    #
     _TERM_TYPE = {
         "inet": {
             "addr_fam": "ipv4",
@@ -433,7 +428,7 @@ class Term(aclgenerator.Term):
             if protocol_str != "":
                 term_block.append([MATCH_INDENT, protocol_str, False])
 
-            # ADDITIONAL SUPPORTED MATCH OPTIONS
+            # ADDITIONAL SUPPORTED MATCH OPTIONS ------------------------------
             # packet length
             if self.term.packet_length:
                 term_block.append([MATCH_INDENT,
@@ -939,49 +934,13 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                                                      _AF_MAP_TXT[term_type])
                         policy_field_sets.append(fs)
 
-                    if term.address:
-                        # if the 'address' keyword is used we will generate 2
-                        # match terms that need to be rendered. (1) for src, (1)
-                        # for dst. if a counter is associated with this term,
-                        # generate matched counters as well.
+                    # generate the unique list of named counters
+                    if term.counter:
+                        # we can't have '.' in counter names
+                        term.counter = re.sub(r"\.", "-", str(term.counter))
+                        policy_counters.add(term.counter)
 
-                        # src term
-                        src_term = copy.deepcopy(term)
-                        src_term.name = "src-%s" % term.name
-                        src_term.address = ""
-                        src_term.source_address = term.address
-                        src_term.destination_address = ""
-                        new_terms.append(self._TERM(src_term, term_type,
-                                                    noverbose))
-
-                        # dst term
-                        dst_term = copy.deepcopy(term)
-                        dst_term.name = "dst-%s" % term.name
-                        dst_term.address = ""
-                        dst_term.destination_address = term.address
-                        dst_term.source_address = ""
-                        new_terms.append(self._TERM(dst_term, term_type,
-                                                    noverbose))
-
-                        # generate the unique list of named counters
-                        if term.counter:
-                            src_term.counter = ("src-" +
-                                                re.sub(r"\.", "-",
-                                                       str(src_term.counter)))
-                            policy_counters.add(src_term.counter)
-                            dst_term.counter = ("dst-" +
-                                                re.sub(r"\.", "-",
-                                                       str(dst_term.counter)))
-                            policy_counters.add(dst_term.counter)
-
-                    else:
-                        # generate the unique list of named counters
-                        if term.counter:
-                            # we can't have '.' in counter names
-                            term.counter = re.sub(r"\.", "-", str(term.counter))
-                            policy_counters.add(term.counter)
-
-                        new_terms.append(self._TERM(term, term_type, noverbose))
+                    new_terms.append(self._TERM(term, term_type, noverbose))
 
             self.arista_traffic_policies.append(
                 (header,

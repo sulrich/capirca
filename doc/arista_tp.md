@@ -1,10 +1,9 @@
-arista traffic-policy rendering notes
+Arista Traffic-Policy Rendering Notes
 
 ## supported tokens
 
-the following tokens are supported:
+The following tokens are supported:
  - `action`
- - `address`
  - `comment`
  - `counter`
  - `destination-address`
@@ -17,7 +16,6 @@ the following tokens are supported:
 - `option`
    - `established`
    - `tcp-established`
-   - `sample` (unsupported) - this is not a match criteria
    - `initial`
    - `rst`
    - `first-fragment` - this  will be rendered as a `fragment` match.`
@@ -28,21 +26,33 @@ the following tokens are supported:
  - `source-prefix` - this should resolve to a configured field-set in traffic-policy format.
  - `verbatim`
 
-## arista traffic-policy token use notes
-### action
+# Arista Traffic-Policy use notes
 
-the fully supported actions are: `accept`, and `deny`.  use of `reject`, or `reject-with-tcp-rst` will result in the generation of deny actions in the rendered traffic policy.
+## filter types
+Traffic-policies are dual-address-family by default.  A term may be either of type ipv4 or ipv6.  If the filter type is defined as mixed (the default), then both match/action statements for each address family will be generated.  if the operator wishes to create an ipv4 or ipv6 only filter, the inet and inet6 tokens within the header will be honored and only addresses from the respective address family will be rendered.
 
-### address token
-use of the 'address' token will create (2) match terms in traffic-policy format. one to match source addresses and one to match destination addresses.  the balance of the fields in the term will be copied and rendered, exactly. use the address token with caution.
+Note, EOS will by default generate an `ipvX-default-all` term which provides a default permit/accept action.  If there is a
+
+## action
+The fully supported actions are: `accept`, and `deny`.  Use of `reject`, or `reject-with-tcp-rst` will result in the generation of deny actions in the rendered traffic policy.
 
 ### counters
-
-- if counters are specified in a term, a traffic-policy named-counter stanza will be generated in the rendered output.
-- counter names should not contain a (`.`). if a (`.`) is embedded in a counter name it will be replaced w/a dash (`-`).
+- If counters are specified in a term, a traffic-policy named-counter stanza will be generated in the rendered output.
+- Counter names should not contain a (`.`). If a (`.`) is embedded in a counter name it will be replaced w/a dash (`-`).
 
 ### (source|destination)-address-exclude
+Currently, (as of Jan-2021), EOS does not support the use of 'except' inline within match statements.  If an exclude/except token is used, a traffic-policy field-set will be generated and rendered in the match-term output. This field-set will be named `<direction>-<term.name>` where direction is either **src** or **dst** depending on the direction of the token in use.
 
-currently (as of 20201223), EOS does not support the use of 'except' within match statements.  if an exclude/except token is used, a field-set will be generated and rendered in the match-term output. this field-set will be named `<direction>-<term.name>` where direction is either **src** or **dst** depending on the direction of the token in use.
+If the filter type is mixed, both address-families will have the respective field-sets generated. The ipv4 address family will have the field-set suffixed with `_ipv4` while the ipv6 field-set will have `_ipv6` appended.
 
-# TODO
+## default-terms
+
+EOS has (2) default terms per traffic-policy, one for each address family
+
+- `ipv4-default-all`
+- `ipv6-default-all`
+
+If there is no match criteria associated with a term _and_ the term name in the policy begins with `default-`, the contents will be rendered into the default terms for the appropriate address family.
+
+## empty match criteria
+if there is no match criteria specified, and the term name does _not_ start with `default-` the term will not be rendered and a warning will be logged.
