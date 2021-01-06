@@ -1,5 +1,5 @@
 # Copyright 2020 Arista Networks. All Rights Reserved.
-#
+# #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -330,8 +330,6 @@ class Term(aclgenerator.Term):
                         src_str += " %s" % addr
 
                 term_block.append([MATCH_INDENT, src_str, False])
-
-            # TODO(sulrich): is this necessary?
             elif self.term.source_address:
                 logging.debug(
                     self.NO_AF_LOG_ADDR.substitute(
@@ -361,7 +359,6 @@ class Term(aclgenerator.Term):
 
                 term_block.append([MATCH_INDENT, dst_str, False])
 
-            # TODO(sulrich): is this necessary?
             elif self.term.destination_address:
                 logging.debug(
                     self.NO_AF_LOG_ADDR.substitute(
@@ -371,31 +368,26 @@ class Term(aclgenerator.Term):
                 )
                 return ""
 
-            # TODO(sulrich): are field-set except matches valid?
-            if self.term.source_prefix or self.term.source_prefix_except:
+            if self.term.source_prefix:
                 src_pfx_str = "source address"
                 for pfx in self.term.source_prefix:
                     src_pfx_str += " %s" % pfx
-                for epfx in self.term.source_prefix_except:
-                    src_pfx_str += " except %s" % epfx
 
                 term_block.append([MATCH_INDENT, " %s" % src_pfx_str, False])
 
             # destination prefix <except> list
-            if (self.term.destination_prefix or
-                    self.term.destination_prefix_except):
+            if self.term.destination_prefix:
                 dst_pfx_str = "destination address"
                 for pfx in self.term.destination_prefix:
                     dst_pfx_str += " %s" % pfx
-                for epfx in self.term.destination_prefix_except:
-                    dst_pfx_str += " except %s" % pfx
 
                 term_block.append([MATCH_INDENT, " %s" % dst_pfx_str, False])
 
             # PROTOCOL MATCHES
             protocol_str = ""
             if self.term.protocol:
-                protocol_str = self._processProtocol(self.term, flags)
+                protocol_str = self._processProtocol(self.term_type,
+                                                     self.term, flags)
 
             # protocol-except handling
             if self.term.protocol_except:
@@ -542,15 +534,57 @@ class Term(aclgenerator.Term):
 
         return icmp_type_str, icmp_code_str
 
-    def _processProtocol(self, term, flags):
+    def _processProtocol(self, term_type, term, flags):
+        _ANET_PROTO_MAP = {
+            "inet": {
+                "ahp": "",
+                "bgp": "",
+                "icmp": "",
+                "igmp": "",
+                "ospf": "",
+                "pim": "",
+                "rsvp": "",
+                "tcp": "",
+                "udp": "",
+                "vrrp": "",
+            },
+            "inet6": {
+                # <0-255>    protocol  values(s) or range(s) of protocol  values
+                "bgp": "",        # BGP
+                "icmpv6": "",     # Internet Control Message Protocol version 6 (58)
+                "ospf": "",       # OSPF routing protocol (89)
+                "pim": "",        # Protocol Independent Multicast (PIM) (103)
+                "rsvp": "",       # Resource Reservation Protocol (RSVP) (46)
+                "tcp": "",        # TCP
+                "udp": "",        # UDP
+                "vrrp": "",       # Virtual Router Redundancy Protocol (VRRP) (112)
+            }
+        }
+
         protocol_str = ""
+        prots = []
+        # if there are dirty prots we'll need to convert the protocol list to
+        # all numbers
+        dirty_prots = False
+        for p in term.protocol:
+            if p not in _ANET_PROTO_MAP[term_type].keys():
+                dirty_prots = True
+                prots.append(p)
+            else:
+                prots.append(p)
 
-        if len(self.term.protocol) > 1:
-            protocol_str += "protocol %s" % self._Group(self.term.protocol)
+        if dirty_prots:
+            num_prots = []
+            for p in prots:
+                try:
+                    num_prots.append(str(self.PROTO_MAP[p]))
+                except KeyError:
+                    num_prots.append(str(p))
+            protocol_str += "protocol %s" % ",".join(num_prots)
         else:
-            protocol_str += "protocol %s" % self.term.protocol[0]
+            protocol_str += "protocol %s" % self._Group(prots)
 
-        if self.term.protocol == ["tcp"]:
+        if prots == ["tcp"]:
             if len(flags) > 0:
                 protocol_str += " flags " + " ".join(flags)
 
