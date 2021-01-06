@@ -116,6 +116,18 @@ securitygroupId: specifies the Id of the security group [mandatory if securitygr
 (Required keywords option and verbatim are not supported in NSX)
 
 
+Arista Traffic-Policy
+
+The arista traffic-policy header designation has the following format:
+target:: arist_tp {traffic-policy name} {inet|inet6|mixed}
+traffic-policy name: specifies the name of the traffic-policy all terms in this header apply to.
+inet: specifies that the resulting policy should only render IPv4 addresses.
+inet6: specifies that the resulting policy should only render IPv6 addresses.
+mixed: specifies that the resulting policy should render both IPv4 and IPv6 addresses.
+
+details regarding the traffic-policy export can be found in the accompanying arista_tp.md file.
+
+
 Terms Section
 Terms defines access control rules within a filter. Once the filter is defined in the header sections, it is followed by one or more terms. Terms are enclosed in brackets and use keywords to specify the functionality of a specific access control.
 
@@ -324,4 +336,3 @@ certification-path-advertisement
 multicast-router-advertisement
 multicast-router-solicitation
 multicast-router-termination
-
