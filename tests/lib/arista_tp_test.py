@@ -150,12 +150,19 @@ term good-term-5 {
 }
 """
 
-GOOD_TERM_7 = """
+PROTO_EXC_TCP = """
 term good-term-7 {
   protocol-except:: tcp
   action:: accept
 }
 """
+PROTO_EXC_LIST = """
+term good-term-7 {
+  protocol-except:: igmp egp rdp hopopt
+  action:: accept
+}
+"""
+
 GOOD_TERM_8 = """
 term good-term-8 {
   source-prefix:: foo_prefix_list
@@ -632,14 +639,6 @@ class AristaTpTest(unittest.TestCase):
         output = str(atp)
         self.assertIn("ttl 25", output, output)
 
-    # def testProtocolExcept(self):
-    #   atp = arista_tp.AristaTrafficPolicy(
-    #       policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_7, self.naming),
-    #       EXP_INFO
-    #   )
-    #   output = str(atp)
-    #   self.assertIn("next-header-except tcp;", output, output)
-
     # def testIcmpv6Except(self):
     #     atp = arista_tp.AristaTrafficPolicy(
     #         policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_20_V6,
@@ -649,13 +648,30 @@ class AristaTpTest(unittest.TestCase):
     #     output = str(atp)
     #     self.assertIn("next-header-except icmpv6", output, output)
 
-    def testProtocolCase(self):
+    def testProtocol(self):
         atp = arista_tp.AristaTrafficPolicy(
             policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_5, self.naming),
             EXP_INFO
         )
         output = str(atp)
         self.assertIn("protocol icmp tcp", output, output)
+
+    def testProtocolExceptTcp(self):
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + PROTO_EXC_TCP, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("protocol 1-5,7-255", output, output)
+        self.assertIn("protocol 0-5,7-255", output, output)
+
+    def testProtocolExceptList(self):
+        atp = arista_tp.AristaTrafficPolicy(
+            policy.ParsePolicy(GOOD_HEADER + PROTO_EXC_LIST, self.naming),
+            EXP_INFO
+        )
+        output = str(atp)
+        self.assertIn("protocol 1,3-7,9-26,28-255", output, output)
 
     def testPrefixList(self):
         atp = arista_tp.AristaTrafficPolicy(

@@ -1,5 +1,5 @@
 # Copyright 2020 Arista Networks. All Rights Reserved.
-# #
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -95,7 +95,6 @@ class Config(object):
 
     def __init__(self):
         self.lines = []
-        self.counters = []
 
     def __str__(self):
         return "\n".join(self.lines)
@@ -118,7 +117,8 @@ class Config(object):
 class Term(aclgenerator.Term):
     """represents an individual AristaTrafficPolicy term.
 
-    mostly useful for the __str__() method.
+    useful for the __str__() method. wher literally, everything intersting
+    happens.
 
     attributes:
      term: the term object from the policy.
@@ -187,15 +187,11 @@ class Term(aclgenerator.Term):
     def __init__(self, term, term_type, noverbose):
         super(Term, self).__init__(term)
         self.term = term
-        self.term_type = term_type
+        self.term_type = term_type   # effectively drives the address-family
         self.noverbose = noverbose
 
         if term_type not in self._TERM_TYPE:
             raise ValueError("unknown filter type: %s" % term_type)
-
-        if "hopopt" in self.term.protocol:
-            loc = self.term.protocol.index("hopopt")
-            self.term.protocol[loc] = "0"
 
     def __str__(self):
         # verify platform specific terms. skip the whole term if the platform
@@ -375,7 +371,6 @@ class Term(aclgenerator.Term):
 
                 term_block.append([MATCH_INDENT, " %s" % src_pfx_str, False])
 
-            # destination prefix <except> list
             if self.term.destination_prefix:
                 dst_pfx_str = "destination address"
                 for pfx in self.term.destination_prefix:
@@ -391,13 +386,8 @@ class Term(aclgenerator.Term):
 
             # protocol-except handling
             if self.term.protocol_except:
-                term_block.append(
-                    [
-                        MATCH_INDENT,
-                        (family_keywords["protocol-except"] + " " +
-                         self._Range(self.term.protocol_except)),
-                        False
-                    ])
+                protocol_str = self._processProtocolExcept(self.term_type,
+                                                           self.term, flags)
 
             # tcp/udp port generation
             port_str = self._processPorts(self.term)
@@ -551,20 +541,21 @@ class Term(aclgenerator.Term):
             "inet6": {
                 # <0-255>    protocol  values(s) or range(s) of protocol  values
                 "bgp": "",        # BGP
-                "icmpv6": "",     # Internet Control Message Protocol version 6 (58)
+                "icmpv6": "",     # ICMPv6 (58)
                 "ospf": "",       # OSPF routing protocol (89)
                 "pim": "",        # Protocol Independent Multicast (PIM) (103)
                 "rsvp": "",       # Resource Reservation Protocol (RSVP) (46)
                 "tcp": "",        # TCP
                 "udp": "",        # UDP
-                "vrrp": "",       # Virtual Router Redundancy Protocol (VRRP) (112)
+                "vrrp": "",       # VRRP (112)
             }
         }
 
         protocol_str = ""
         prots = []
         # if there are dirty prots we'll need to convert the protocol list to
-        # all numbers
+        # all numbers and generate the list of protocols to match on. EOS
+        # doesn't support commingling named protocols w/numeric protocol-ids
         dirty_prots = False
         for p in term.protocol:
             if p not in _ANET_PROTO_MAP[term_type].keys():
@@ -587,6 +578,38 @@ class Term(aclgenerator.Term):
         if prots == ["tcp"]:
             if len(flags) > 0:
                 protocol_str += " flags " + " ".join(flags)
+
+        return protocol_str
+
+    def _processProtocolExcept(self, term_type, term, flags):
+        protocol_range = {
+            "inet": 1,
+            "inet6": 0,
+        }
+        protocol_str = ""
+        except_list = set()
+        for p in term.protocol_except:
+            if p in self.PROTO_MAP.keys():
+                except_list.add(self.PROTO_MAP[p])
+            else:
+                except_list.add(int(p))
+        except_list = sorted(except_list)
+
+        ex_str = ""
+        ptr = protocol_range[term_type]
+        for p in except_list:
+            if 255 > p > ptr:
+                if (p - 1) == ptr:
+                    ex_str += str(ptr) + ","
+                    ptr = p + 1
+                else:
+                    ex_str += str(ptr) + "-" + str(p - 1) + ","
+                    ptr = p + 1
+            elif p == ptr:
+                ptr = p + 1
+
+        ex_str += str(ptr) + "-" + "255"
+        protocol_str = "protocol " + ex_str
 
         return protocol_str
 
