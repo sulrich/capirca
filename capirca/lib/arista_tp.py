@@ -224,14 +224,13 @@ class Term(aclgenerator.Term):
             return ""
 
         # comment
-        # TODO(sulrich): it might be useful to clean up comments a bit more than
-        # just rendering these into the term.
         if self.term.owner and not self.noverbose:
             self.term.comment.append("owner: %s" % self.term.owner)
-            if self.term.comment and not self.noverbose:
-                for comment in self.term.comment:
-                    for line in comment.split("\n"):
-                        term_block.append([MATCH_INDENT, "!! %s" % line, False])
+
+        if self.term.comment and not self.noverbose:
+            for comment in self.term.comment:
+                for line in comment.split("\n"):
+                    term_block.append([MATCH_INDENT, "!! %s" % line, False])
 
         # term verbatim output - this will skip over normal term creation
         # code.  warning generated from policy.py if appropriate.
@@ -309,18 +308,15 @@ class Term(aclgenerator.Term):
         else:
             # source address
             src_addr = self.term.GetAddressOfVersion("source_address", term_af)
-
             src_addr_ex = self.term.GetAddressOfVersion(
                 "source_address_exclude", term_af
             )
-            src_addr, src_addr_ex = self._MinimizePrefixes(src_addr,
-                                                           src_addr_ex)
 
             if src_addr:
                 src_str = "source prefix"
                 if src_addr_ex:
                     # this should correspond to the generated field set
-                    src_str += " src-%s" % self.term.name
+                    src_str += " field-set src-%s" % self.term.name
                 else:
                     for addr in src_addr:
                         src_str += " %s" % addr
@@ -341,14 +337,12 @@ class Term(aclgenerator.Term):
             dst_addr_ex = self.term.GetAddressOfVersion(
                 "destination_address_exclude", term_af
             )
-            dst_addr, dst_addr_ex = self._MinimizePrefixes(dst_addr,
-                                                           dst_addr_ex)
 
             if dst_addr:
                 dst_str = "destination prefix"
                 if dst_addr_ex:
                     # this should correspond to the generated field set
-                    dst_str += " dst-%s" % self.term.name
+                    dst_str += " field-set dst-%s" % self.term.name
                 else:
                     for addr in dst_addr:
                         dst_str += " %s" % addr
@@ -517,7 +511,6 @@ class Term(aclgenerator.Term):
                     icmp_type_str += " code all"
 
         if self.term.icmp_code and len(icmp_types) <= 1:
-            # TODO(sulrich): fix icmp_code handling
             icmp_codes = self._Group(self.term.icmp_code)
             icmp_codes = re.sub(r" ", ",", icmp_codes)
             icmp_code_str += " code %s" % icmp_codes
@@ -649,41 +642,6 @@ class Term(aclgenerator.Term):
 
         return flags, misc_options
 
-    def _MinimizePrefixes(self, include, exclude):
-        """Calculate a minimal set of prefixes for match conditions.
-
-        Args:
-          include: Iterable of nacaddr objects, prefixes to match.
-          exclude: Iterable of nacaddr objects, prefixes to exclude.
-        Returns:
-          A tuple (I,E) where I and E are lists containing the minimized
-          versions of include and exclude, respectively.  The order
-          of each input list is preserved.
-        """
-        # Remove any included prefixes that have EXACT matches in the
-        # excluded list.  Excluded prefixes take precedence on the router
-        # regardless of the order in which the include/exclude are applied.
-        exclude_set = set(exclude)
-        include_result = [ip for ip in include if ip not in exclude_set]
-
-        # Every address match condition on a AristaTp firewall filter
-        # contains an implicit "0/0 except" or "0::0/0 except".  If an
-        # excluded prefix is not contained within any less-specific prefix
-        # in the included set, we can elide it.  In other words, if the
-        # next-less-specific prefix is the implicit "default except",
-        # there is no need to configure the more specific "except".
-        #
-        # TODO(kbrint): this could be made more efficient with a Patricia trie.
-        # TODO(sulrich): ask kevin about this
-        exclude_result = []
-        for exclude_prefix in exclude:
-            for include_prefix in include_result:
-                if exclude_prefix.subnet_of(include_prefix):
-                    exclude_result.append(exclude_prefix)
-                    break
-
-        return include_result, exclude_result
-
     def _Group(self, group, lc=True):
         """If 1 item return it, else return [ item1 item2 ].
 
@@ -755,7 +713,6 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
         supported_tokens |= {
             "action",
-            "address",
             "comment",
             "counter",
             "destination_address",
@@ -796,6 +753,38 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             }
         )
         return supported_tokens, supported_sub_tokens
+
+    def _MinimizePrefixes(self, include, exclude):
+        """Calculate a minimal set of prefixes for match conditions.
+
+        Args:
+          include: Iterable of nacaddr objects, prefixes to match.
+          exclude: Iterable of nacaddr objects, prefixes to exclude.
+        Returns:
+          A tuple (I,E) where I and E are lists containing the minimized
+          versions of include and exclude, respectively.  The order
+          of each input list is preserved.
+        """
+        # Remove any included prefixes that have EXACT matches in the
+        # excluded list.  Excluded prefixes take precedence on the router
+        # regardless of the order in which the include/exclude are applied.
+        exclude_set = set(exclude)
+        include_result = [ip for ip in include if ip not in exclude_set]
+
+        # Every address match condition on a AristaTp firewall filter
+        # contains an implicit "0/0 except" or "0::0/0 except".  If an
+        # excluded prefix is not contained within any less-specific prefix
+        # in the included set, we can elide it.  In other words, if the
+        # next-less-specific prefix is the implicit "default except",
+        # there is no need to configure the more specific "except".
+        exclude_result = []
+        for exclude_prefix in exclude:
+            for include_prefix in include_result:
+                if exclude_prefix.subnet_of(include_prefix):
+                    exclude_result.append(exclude_prefix)
+                    break
+
+        return include_result, exclude_result
 
     def _GenPrefixFieldset(self, direction, name, pfxs, ex_pfxs, af):
         field_list = ""
@@ -858,7 +847,6 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
                     term_type = ft
                     term.name = self.FixTermLength(term.name)
-
                     # TODO(sulrich): if term names become unique to address
                     # families, this can be removed.
                     if (filter_type == "mixed" and term_type == "inet6"):
@@ -976,20 +964,36 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
                     # exclusions in a term. these will be referenced within the
                     # term
                     if term.source_address_exclude:
-                        fs = self._GenPrefixFieldset("src",
-                                                     "%s" % term.name,
-                                                     term.source_address,
-                                                     term.source_address_exclude,
-                                                     _AF_MAP_TXT[term_type])
-                        policy_field_sets.append(fs)
+                        src_addr = term.GetAddressOfVersion(
+                            "source_address", self._AF_MAP[term_type])
+                        src_addr_ex = term.GetAddressOfVersion(
+                            "source_address_exclude", self._AF_MAP[term_type])
+                        src_addr, src_addr_ex = self._MinimizePrefixes(src_addr,
+                                                                       src_addr_ex)
+
+                        if src_addr_ex:
+                            fs = self._GenPrefixFieldset("src",
+                                                         "%s" % term.name,
+                                                         src_addr,
+                                                         src_addr_ex,
+                                                         _AF_MAP_TXT[term_type])
+                            policy_field_sets.append(fs)
 
                     if term.destination_address_exclude:
-                        fs = self._GenPrefixFieldset("dst",
-                                                     "%s" % term.name,
-                                                     term.destination_address,
-                                                     term.destination_address_exclude,
-                                                     _AF_MAP_TXT[term_type])
-                        policy_field_sets.append(fs)
+                        dst_addr = term.GetAddressOfVersion(
+                            "destination_address", self._AF_MAP[term_type])
+                        dst_addr_ex = term.GetAddressOfVersion(
+                            "destination_address_exclude", self._AF_MAP[term_type])
+                        dst_addr, dst_addr_ex = self._MinimizePrefixes(dst_addr,
+                                                                       dst_addr_ex)
+
+                        if dst_addr_ex:
+                            fs = self._GenPrefixFieldset("dst",
+                                                         "%s" % term.name,
+                                                         term.destination_address,
+                                                         term.destination_address_exclude,
+                                                         _AF_MAP_TXT[term_type])
+                            policy_field_sets.append(fs)
 
                     # generate the unique list of named counters
                     if term.counter:
@@ -1025,6 +1029,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             if len(field_sets) > 0:
                 for fs in field_sets:
                     config.Append("   ", fs)
+                    config.Append("   ", "!")
 
             config.Append("   ", "no traffic-policy %s" % filter_name)
             config.Append("   ", "traffic-policy %s" % filter_name)
