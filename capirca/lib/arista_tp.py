@@ -27,10 +27,6 @@ import six
 from absl import logging
 from capirca.lib import aclgenerator
 
-# from capirca.lib import nacaddr
-# from capirca.lib import summarizer
-# from six.moves import range
-
 #          1         2         3
 # 123456789012345678901234567890123456789
 # traffic-policies
@@ -223,15 +219,6 @@ class Term(aclgenerator.Term):
             )
             return ""
 
-        # comment
-        if self.term.owner and not self.noverbose:
-            self.term.comment.append("owner: %s" % self.term.owner)
-
-        if self.term.comment and not self.noverbose:
-            for comment in self.term.comment:
-                for line in comment.split("\n"):
-                    term_block.append([MATCH_INDENT, "!! %s" % line, False])
-
         # term verbatim output - this will skip over normal term creation
         # code.  warning generated from policy.py if appropriate.
         if self.term.verbatim:
@@ -359,18 +346,20 @@ class Term(aclgenerator.Term):
                 return ""
 
             if self.term.source_prefix:
-                src_pfx_str = "source address"
+                src_pfx_str = "source prefix field-set"
                 for pfx in self.term.source_prefix:
                     src_pfx_str += " %s" % pfx
 
-                term_block.append([MATCH_INDENT, " %s" % src_pfx_str, False])
+                term_block.append([MATCH_INDENT,
+                                   " %s" % src_pfx_str, False])
 
             if self.term.destination_prefix:
-                dst_pfx_str = "destination address"
+                dst_pfx_str = "destination prefix field-set"
                 for pfx in self.term.destination_prefix:
                     dst_pfx_str += " %s" % pfx
 
-                term_block.append([MATCH_INDENT, " %s" % dst_pfx_str, False])
+                term_block.append([MATCH_INDENT,
+                                   " %s" % dst_pfx_str, False])
 
             # PROTOCOL MATCHES
             protocol_str = ""
@@ -464,7 +453,7 @@ class Term(aclgenerator.Term):
             # counters
             if self.term.counter:
                 term_block.append([ACTION_INDENT,
-                                   "counter %s" % self.term.counter, False])
+                                   "count %s" % self.term.counter, False])
 
             term_block.append([MATCH_INDENT, "!", False])  # end of actions
         term_block.append([TERM_INDENT, "!", False])  # end of match entry

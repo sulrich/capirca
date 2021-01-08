@@ -622,6 +622,7 @@ class AristaTpTest(unittest.TestCase):
         )
         output = str(atp)
         self.assertIn("counter test-cleanup-check", output, output)
+        self.assertIn("count test-cleanup-check", output, output)
 
     def testDefaultDeny(self):
         atp = arista_tp.AristaTrafficPolicy(
@@ -680,15 +681,6 @@ class AristaTpTest(unittest.TestCase):
         output = str(atp)
         self.assertIn("ttl 25", output, output)
 
-    # def testIcmpv6Except(self):
-    #     atp = arista_tp.AristaTrafficPolicy(
-    #         policy.ParsePolicy(GOOD_HEADER_INET6 + GOOD_TERM_20_V6,
-    #                            self.naming),
-    #         EXP_INFO
-    #     )
-    #     output = str(atp)
-    #     self.assertIn("next-header-except icmpv6", output, output)
-
     def testProtocol(self):
         atp = arista_tp.AristaTrafficPolicy(
             policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_5, self.naming),
@@ -719,9 +711,9 @@ class AristaTpTest(unittest.TestCase):
             policy.ParsePolicy(GOOD_HEADER + GOOD_TERM_8, self.naming),
             EXP_INFO
         )
-        spfx_re = re.compile(r"source address\W+foo_prefix_list\W+")
+        spfx_re = re.compile(r"source prefix field-set\W+foo_prefix_list\W+")
         dpfx_re = re.compile(
-            r"destination address\W+bar_prefix_list\W+baz_prefix_list\W+"
+            r"destination prefix field-set\W+bar_prefix_list\W+baz_prefix_list\W+"
         )
         output = str(atp)
         self.assertTrue(spfx_re.search(output), output)
