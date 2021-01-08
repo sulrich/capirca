@@ -1,24 +1,35 @@
 header {
   comment:: "sample arista traffic policy"
-  target:: arista_tp SAMPLE-TRAFFIC-POLICY
+  target:: arista_tp MIXED-TRAFFIC-POLICY mixed
 }
 
 term accept-icmp {
   protocol:: icmp
   counter:: icmp-loopback
-  policer:: rate-limit-icmp
+  icmp-type:: echo-request echo-reply
+  action:: accept
+}
+
+term wonky-prots {
+  protocol:: igmp egp rdp
+  counter:: wonky-prots-loopback
+  action:: accept
+  owner:: foo@arista.com
+}
+
+term wonky-prots-except {
+  protocol-except:: igmp egp rdp hopopt
+  counter:: wonky-prots-loopback
   action:: accept
 }
 
 term accept-traceroute {
-  comment:: "Allow inbound traceroute from any source."
+  comment:: "allow inbound traceroute from any source."
   destination-port:: TRACEROUTE
   protocol:: udp
   counter:: inbound-traceroute
-  policer:: rate-limit-to-router
   action:: accept
   expiration:: 2001-12-31
-  owner:: jeff
 }
 
 term accept-bgp-requests {
@@ -160,6 +171,7 @@ term allow-tacacs-replies {
   action:: accept
 }
 
+# feature conflict, will not be rendered
 term allow-dns-fragments {
   source-address:: ANY
   source-exclude:: PUBLIC_NAT
@@ -167,7 +179,15 @@ term allow-dns-fragments {
   destination-port:: DNS
   protocol:: tcp udp
   option:: is-fragment
-  # encapsulate:: foo_gre
+  action:: accept
+}
+
+# will be rendered
+term allow-dns-foo-exc-test {
+  source-address:: ANY
+  source-exclude:: GOOGLE_DNS
+  destination-port:: DNS
+  protocol:: tcp udp
   action:: accept
 }
 
@@ -177,8 +197,15 @@ term ratelimit-large-dns {
   protocol:: udp
   packet-length:: 500-5000
   counter:: large-dns-counter
-  policer:: large-dns-policer
-  option:: sample
+  action:: accept
+}
+
+term invalid-action-next {
+  destination-address:: GOOGLE_DNS
+  destination-port:: DNS
+  protocol:: udp
+  packet-length:: 500-5000
+  counter:: large-dns-counter
   action:: next
 }
 
@@ -194,10 +221,72 @@ term reject-imap-requests {
   destination-address:: MAIL_SERVERS
   destination-port:: IMAP
   protocol:: tcp
+  counter:: reject.imap.requests
   action:: reject-with-tcp-rst
 }
 
-term discard-default {
-  counter:: discard-default
+term MIXED_INET {
+  source-address:: GOOGLE_DNS
+  destination-address:: INTERNAL
+  protocol:: tcp udp
+  action:: accept
+}
+
+term INET_MIXED {
+  source-address:: INTERNAL
+  destination-address:: GOOGLE_DNS
+  protocol:: tcp udp
+  action:: accept
+}
+
+term MIXED_INET6 {
+  source-address:: GOOGLE_DNS
+  destination-address:: SITELOCAL
+  action:: accept
+}
+
+term INET6_MIXED {
+  source-address:: SITELOCAL
+  destination-address:: GOOGLE_DNS
+  action:: accept
+}
+
+term MIXED_MIXED {
+  source-address:: GOOGLE_DNS
+  destination-address:: GOOGLE_DNS
+  action:: accept
+}
+
+term MIXED_ANY {
+  source-address:: GOOGLE_DNS
+  action:: accept
+}
+term ANY_MIXED {
+  destination-address:: GOOGLE_DNS
+  action:: accept
+}
+term INET_INET {
+  source-address:: NTP_SERVERS
+  destination-address:: INTERNAL
+  action:: accept
+}
+term INET6_INET6 {
+  source-address:: SITELOCAL
+  destination-address:: SITELOCAL
+  action:: accept
+}
+term INET_INET6 {
+  source-address:: INTERNAL
+  destination-address:: SITELOCAL
+  action:: accept
+}
+term INET6_INET {
+  source-address:: SITELOCAL
+  destination-address:: INTERNAL
+  action:: accept
+}
+
+term default-discard {
+  counter:: default-discard
   action:: deny
 }

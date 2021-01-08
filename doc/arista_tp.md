@@ -1,6 +1,6 @@
-Arista Traffic-Policy Rendering Notes
+# Arista Traffic-Policy Use Notes
 
-## supported tokens
+# supported tokens
 
 The following tokens are supported:
  - `action`
@@ -26,12 +26,10 @@ The following tokens are supported:
  - `source-prefix` - this should resolve to a configured field-set in traffic-policy format.
  - `verbatim`
 
-# Arista Traffic-Policy use notes
 
-## filter types
-Traffic-policies are dual-address-family by default.  A term may be either of type ipv4 or ipv6.  If the filter type is defined as mixed (the default), then both match/action statements for each address family will be generated.  if the operator wishes to create an ipv4 or ipv6 only filter, the inet and inet6 tokens within the header will be honored and only addresses from the respective address family will be rendered.
 
-EOS will, by default create an 'ipvX-default-all' term for the alternate address family.  (see below)
+# filter types
+Traffic-policies are dual-address-family by default (i.e.: mixed).  A term may be either of type ipv4 or ipv6.  If the filter type is defined as mixed (the default), then match/action statements for each address family will be generated.  If the operator wishes to create an ipv4 or ipv6 only filter, the inet and inet6 tokens within the header will be honored and only addresses from the respective address family will be rendered.  However, EOS will still, by default, create an 'ipvX-default-all' term for the alternate address family.  (see below)
 
 ## action
 The fully supported actions are: `accept`, and `deny`.  Use of `reject`, or `reject-with-tcp-rst` will result in the generation of deny actions in the rendered traffic policy.
@@ -43,7 +41,7 @@ The fully supported actions are: `accept`, and `deny`.  Use of `reject`, or `rej
 ### (source|destination)-address-exclude
 Currently, (as of Jan-2021), EOS does not support the use of 'except' inline within match statements.  If an exclude/except token is used, a traffic-policy field-set will be generated and referenced in the match-term output. This field-set will be named `<direction>-<term.name>` where direction is either **src** or **dst** depending on the direction of the token in use.
 
-If the filter type is mixed, both address-families will have the respective field-sets generated. The ipv4 address family will have the field-set suffixed with `_ipv4` while the ipv6 field-set will have `_ipv6` appended.
+If the filter type is mixed, both address-families will have the respective field-sets generated. The field-set for the ipv4 address family will have the field-set generated with no suffix, while the ipv6 field-set will have `_v6` appended.
 
 ## default-terms
 
