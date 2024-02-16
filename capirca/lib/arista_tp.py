@@ -21,7 +21,6 @@ import textwrap
 
 from absl import logging
 from capirca.lib import aclgenerator
-import six
 
 #          1         2         3
 # 123456789012345678901234567890123456789
@@ -54,6 +53,11 @@ TERM_INDENT = 2 * INDENT_STR
 MATCH_INDENT = 3 * INDENT_STR
 ACTION_INDENT = 4 * INDENT_STR
 MAX_COMMENT_LENGTH = 60
+
+# if there are more than the following # of prefixes in an address collection, a
+# prefix field-set will be generated using the same rules used for exception
+# address collections.
+MAX_INLINE_PREFIX_COUNT = 100
 
 # generic error class
 
@@ -120,16 +124,17 @@ class Term(aclgenerator.Term):
 
   _PLATFORM = "arista_tp"
   _ACTIONS = {
-      "accept": "",
-      "deny": "drop",
-      "reject": "drop",  # unsupported action, convert to drop
-      "reject-with-tcp-rst": "drop",  # ibid
-      # "next": "continue",
+    "accept": "",
+    "deny": "drop",
+    "reject": "drop",  # unsupported action, convert to drop
+    "reject-with-tcp-rst": "drop",  # ibid
+    # "next": "continue",
   }
   AF_MAP = {
-      "inet": 4,
-      "inet6": 6,
+    "inet": 4,
+    "inet6": 6,
   }
+
   # the following lookup table is used to map between the various types of
   # filters the generator can render.  as new differences are
   # encountered, they should be added to this table.  Accessing members
@@ -163,7 +168,7 @@ class Term(aclgenerator.Term):
     if (self.term.platform and self._PLATFORM not in self.term.platform):
       return ""
     if (self.term.platform_exclude and
-        self._PLATFORM in self.term.platform_exclude):
+            self._PLATFORM in self.term.platform_exclude):
       return ""
 
     config = Config()
@@ -211,7 +216,8 @@ class Term(aclgenerator.Term):
 
     term_block.append([
         TERM_INDENT,
-        "match %s %s" % (self.term.name, family_keywords["addr_fam"]), False
+        "match %s %s" % (self.term.name, family_keywords["addr_fam"]),
+        False
     ])
 
     term_af = self.AF_MAP.get(self.term_type)
@@ -225,12 +231,20 @@ class Term(aclgenerator.Term):
 
     has_match_criteria = (
         self.term.destination_address or
-        self.term.destination_address_exclude or self.term.destination_port or
-        self.term.destination_prefix or self.term.fragment_offset or
-        self.term.hop_limit or self.term.port or self.term.protocol or
-        self.term.protocol_except or self.term.source_address or
-        self.term.source_address_exclude or self.term.source_port or
-        self.term.source_prefix or self.term.ttl)
+        self.term.destination_address_exclude or
+        self.term.destination_port or
+        self.term.destination_prefix or
+        self.term.fragment_offset or
+        self.term.hop_limit or
+        self.term.port or
+        self.term.protocol or
+        self.term.protocol_except or
+        self.term.source_address or
+        self.term.source_address_exclude or
+        self.term.source_port or
+        self.term.source_prefix or
+        self.term.ttl
+    )
 
     # if the term name is default-* we will render this into the
     # appropriate default term name to be used in this filter.
@@ -254,7 +268,7 @@ class Term(aclgenerator.Term):
 
       if src_addr:
         src_str = "source prefix"
-        if src_addr_ex:
+        if src_addr_ex or (len(src_addr) >= MAX_INLINE_PREFIX_COUNT):
           # this should correspond to the generated field set
           src_str += " field-set src-%s" % self.term.name
         else:
@@ -275,7 +289,7 @@ class Term(aclgenerator.Term):
 
       if dst_addr:
         dst_str = "destination prefix"
-        if dst_addr_ex:
+        if dst_addr_ex or (len(dst_addr) >= MAX_INLINE_PREFIX_COUNT):
           # this should correspond to the generated field set
           dst_str += " field-set dst-%s" % self.term.name
         else:
@@ -365,7 +379,10 @@ class Term(aclgenerator.Term):
     current_action = self._ACTIONS.get(self.term.action[0])
     # non-permit/drop actions should be added here
     has_extra_actions = (
-        self.term.logging or self.term.counter or self.term.dscp_set)
+        self.term.logging or
+        self.term.counter or
+        self.term.dscp_set
+    )
 
     # if !accept - generate an action statement
     # if accept and there are extra actions generate an actions statement
@@ -387,13 +404,14 @@ class Term(aclgenerator.Term):
             self.term.name,
         )
 
-        # counters
+      # counters
       if self.term.counter:
         term_block.append(
             [ACTION_INDENT,
              "count %s" % self.term.counter, False])
 
       term_block.append([MATCH_INDENT, "!", False])  # end of actions
+
     term_block.append([TERM_INDENT, "!", False])  # end of match entry
 
     for tindent, tstr, tverb in term_block:
@@ -770,7 +788,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
           # appropriate default term name to be used in this filter.
           default_term = re.match(r"^default\-.*", term.name, re.IGNORECASE)
 
-          # remove if term names become unique to address family.
+          # remove this normalization if term names become unique to address family.
           if (filter_type == "mixed" and ft == "inet6"):
             term.name = af_map_txt[ft] + "-" + term.name
 
@@ -824,10 +842,16 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
               continue
 
           has_unsupported_match_criteria = (
-              term.dscp_except or term.dscp_match or term.ether_type or
-              term.flexible_match_range or term.forwarding_class or
-              term.forwarding_class_except or term.next_ip or term.port or
-              term.traffic_type)
+              term.dscp_except or
+              term.dscp_match or
+              term.ether_type or
+              term.flexible_match_range or
+              term.forwarding_class or
+              term.forwarding_class_except or
+              term.next_ip or
+              term.port or
+              term.traffic_type
+          )
           if has_unsupported_match_criteria:
             logging.warning(
                 "WARNING: term %s in policy %s uses an "
@@ -839,13 +863,13 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             continue
 
           if (("is-fragment" in term.option or "fragment" in term.option) and
-              filter_type == "inet6"):
+             filter_type == "inet6"):
             raise AristaTpFragmentInV6Error("the term %s uses is-fragment but "
                                             "is a v6 policy." % term.name)
 
           # this should error out more gracefully in mixed configs
           if (("is-fragment" in term.option or "fragment" in term.option) and
-              ft == "inet6"):
+             ft == "inet6"):
             logging.warning(
                 "WARNING: term %s in mixed policy %s uses "
                 "fragment the ipv6 version of the term will not be "
@@ -857,7 +881,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
 
           # check for traffic-policy specific feature interactions
           if (("is-fragment" in term.option or "fragment" in term.option) and
-              (term.source_port or term.destination_port)):
+             (term.source_port or term.destination_port)):
             logging.warning(
                 "WARNING: term %s uses fragment as well as src/dst "
                 "port matches.  traffic-policies currently do not "
@@ -877,7 +901,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             )
             continue
 
-          # generate the prefix sets when there are inline addres
+          # generate the prefix sets when there are inline address
           # exclusions in a term. these will be referenced within the
           # term
           if term.source_address_exclude:
@@ -888,7 +912,10 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             src_addr, src_addr_ex = self._MinimizePrefixes(
                 src_addr, src_addr_ex)
 
-            if src_addr_ex:
+            print(type(src_addr), len(src_addr))
+            print(type(src_addr_ex), len(src_addr_ex))
+
+            if src_addr_ex or (len(src_addr) >= MAX_INLINE_PREFIX_COUNT):
               fs = self._GenPrefixFieldset("src", "%s" % term.name, src_addr,
                                            src_addr_ex, af_map_txt[ft])
               policy_field_sets.append(fs)
@@ -901,7 +928,7 @@ class AristaTrafficPolicy(aclgenerator.ACLGenerator):
             dst_addr, dst_addr_ex = self._MinimizePrefixes(
                 dst_addr, dst_addr_ex)
 
-            if dst_addr_ex:
+            if dst_addr_ex or (len(dst_addr) >= MAX_INLINE_PREFIX_COUNT):
               fs = self._GenPrefixFieldset("dst", "%s" % term.name, dst_addr,
                                            dst_addr_ex, af_map_txt[ft])
               policy_field_sets.append(fs)
